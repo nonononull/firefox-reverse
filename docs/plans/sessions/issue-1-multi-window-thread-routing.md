@@ -58,8 +58,8 @@ forbidden_operations:
 
 ## Approved Decision
 
-- 决策：保留 `AgentSession` 的稳定 owner、心跳、TTL、同 thread 独占和多 thread 并行；删除 `AgentPanel` 对其它窗口运行 thread 的自动 `openThread()` 接管，提示条点击改为 `newChat()`，并为同 owner 重挂载增加权威 reservation generation fence。
-- 理由：UI 路由修复解决单任务观感；exact-head reviewer 进一步证明同 owner 旧挂载可迟到释放新挂载 reservation，故只在 `AgentSession` reservation 三方法与订阅清理内增加最小代际校验，不能仅靠面板本地状态。
+- 决策：保留 `AgentSession` 的稳定 owner、心跳、TTL、同 thread 独占和多 thread 并行；删除 `AgentPanel` 对其它窗口运行 thread 的自动 `openThread()` 接管，提示条点击改为 `newChat()`，并为同 owner 重挂载增加 generation 与 owner+generation 级单调 claim fence。
+- 理由：UI 路由修复解决单任务观感；exact-head reviewer 进一步证明同 owner 旧挂载/旧 claim 可迟到影响更新操作，故只在 `AgentSession` reservation 三方法与订阅清理内增加最小代际校验。低 claim 禁止新认领，但可清理自己原有 reservation，不能仅靠面板本地状态。
 - 范围：fork 内 `AgentPanel`、`AgentSession` reservation fence、`ConversationStore` 删除线性化 guard、三份动态自测、聚合入口及本任务控制文档，完成 fork 内 Issue、PR、独立审查和 squash merge。
 - 拒绝方案：不实现双窗口编辑同一 thread，不实现只读跟随，不增加对外 MCP/worker 工具；内部只新增 generation-aware reservation 方法，不向公开上游提 PR，不发布或安装浏览器。
 
@@ -189,18 +189,20 @@ change_contract:
     - reviewer git:42ff472263174d7cba38b38577d4a8312bd4a2d5 REQUEST_CHANGES P1=2 P2=3
     - reviewer git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39 REQUEST_CHANGES P1=3 P2=1
     - reviewer git:97252db1295e9209d8d2fa88d85c1d736214f227 REQUEST_CHANGES P1=1 P2=4
+    - reviewer git:d16f88cea639895a4a60f773fd7d21986e6f95f7 REQUEST_CHANGES P1=2 P2=1
   stale_verdict_invalidation_refs:
     - git:42ff472263174d7cba38b38577d4a8312bd4a2d5 reviewer verdict is failed historical evidence, not final approval
     - git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39 reviewer verdict is failed historical evidence, not final approval
     - git:97252db1295e9209d8d2fa88d85c1d736214f227 reviewer verdict is failed historical evidence, not final approval
-    - 2026-08-14 源码 checkpoint 门禁只属于 git:c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d；治理提交后必须对 final exact HEAD/tree 重新审查
+    - git:d16f88cea639895a4a60f773fd7d21986e6f95f7 reviewer verdict is failed historical evidence, not final approval
+    - 2026-08-14 源码 checkpoint 门禁只属于 git:8ef8ce328dc587e048ba75c2ee9e979b47af38de；治理提交后必须对 final exact HEAD/tree 重新审查
   regression_checks:
     - surface: external-running-routing
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
       expected_result: no external openThread route; banner calls newChat
     - surface: reservation-and-heartbeat
       command_or_evidence_ref: node selftest-thread-reservation.mjs
-      expected_result: all pass
+      expected_result: generation fence、owner+generation 最高 claim、附属目标、旧 reservation 清理、心跳与 TTL 全部通过
     - surface: sidebar-and-agent-tooling
       command_or_evidence_ref: build.md#完整轻量门禁
       expected_result: bundle, 13 selftests and branding all pass
@@ -209,7 +211,7 @@ change_contract:
       expected_result: dynamic claim/selection/迟到资源 mutation 被拒绝；消息修改和 session.run 位于同步 guard 保护的无 await 提交区间
     - surface: history-delete-linearization
       command_or_evidence_ref: node selftest-conversations.mjs and node selftest-multi-window-routing.mjs
-      expected_result: missing guard and ownership loss after load both fail closed without deleting the thread
+      expected_result: missing guard and ownership loss after load both fail closed without deleting the thread; mode/workspace save failures roll back; run throw/not-running roll back user message
   sibling_regression_guard:
     status: passed
     closeout_rule: passed-or-blocked-before-done
@@ -221,9 +223,9 @@ change_contract:
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: local-source-gate:2026-08-14T01:59:12+08:00
+        post_change_replay_ref: git:8ef8ce328dc587e048ba75c2ee9e979b47af38de-local-source-gate:2026-08-14T03:31:02+08:00
         expected_result: reservation suite and aggregate selftests pass
-        actual_result: PowerShell 完整链无重试通过 sidebar bundle 218.5kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 43 项断言、ConversationStore 26/26 与动态 multi-window routing 合同通过
+        actual_result: PowerShell 完整链无重试通过 sidebar bundle 218.5kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 52 项断言、ConversationStore 32/32 与动态 multi-window routing 合同通过
         owner_visible_status: passed
         regression_status: passed
     forbidden_ops_until_replay: []
@@ -254,16 +256,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: git:c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d-local-source-gate:2026-08-14T01:59:12+08:00-sidebar-and-13-selftests-pass
+    result_ref: git:8ef8ce328dc587e048ba75c2ee9e979b47af38de-local-source-gate:2026-08-14T03:31:02+08:00-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: git:c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d-local-source-gate:2026-08-14T01:59:12+08:00-bundle-218.5kb
+    result_ref: git:8ef8ce328dc587e048ba75c2ee9e979b47af38de-local-source-gate:2026-08-14T03:31:02+08:00-bundle-218.5kb
   review:
     command_ref: build.md#独立审查
-    result_ref: git:97252db1295e9209d8d2fa88d85c1d736214f227-request-changes-p1-1-p2-4; fresh final exact-head rereview pending
+    result_ref: git:d16f88cea639895a4a60f773fd7d21986e6f95f7-request-changes-p1-2-p2-1; fresh final exact-head rereview pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: git:c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d-local-source-gate:2026-08-14T01:59:12+08:00-lockfile-ignored-bundle-and-12-file-boundary-pass
+    result_ref: git:8ef8ce328dc587e048ba75c2ee9e979b47af38de-local-source-gate:2026-08-14T03:31:02+08:00-lockfile-ignored-bundle-and-12-file-boundary-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -282,3 +284,5 @@ execution_evidence:
 - `2026-08-13 22:11:10 +08:00`：实现提交 `3f9f961c1728a9f735222667b139458b32fc0ea3`、tree `c102564f779c727f44d00e2632124d7bebe1c4d1` 使用最小 selection intent 事务闭合迟到初始化/新对话/历史打开与失权恢复；发送每个异步阶段后重新续约并在最后一次验证后无 await 启动；缺 reservation API 失败关闭。源码冻结门禁通过：`npm ci`、bundle `215.0kb`、13/13 Node 自测文件、reservation 22 项断言、动态路由合同、branding 22 文件和 `git diff --check`。最终治理 HEAD/tree 与 fresh exact-head review 仍待完成。
 - `2026-08-14 00:00:49 +08:00`：独立 reviewer 对 `0937c0f43b78b8babd510563eaf4c8d8ddc49a39` 返回 `REQUEST_CHANGES`（P1=3、P2=1），指出同 owner 迟到释放、失权发送文本覆盖、历史删除绕过 reservation 和关键竞态动态覆盖不足。当前工作树增加权威 reservation generation fence、无损输入合并、受控历史删除及生产源码动态断言；父线程复核进一步将同步 ownership guard 下沉到 `ConversationStore` 删除线性化点，封闭 `_load()` 期间新挂载接管的 TOCTOU。无重试最终链通过 `npm ci`、bundle `216.4kb`、13/13 Node 自测文件、reservation 34 项断言、ConversationStore 15 项断言、动态路由合同、branding 22 文件与 `git diff --check`；最终提交和 fresh exact-head review 仍待完成。
 - `2026-08-14 01:59:12 +08:00`：独立 reviewer 对 `97252db1295e9209d8d2fa88d85c1d736214f227` 返回 `REQUEST_CHANGES`（P1=1、P2=4），指出追加消息后失权可导致重复文本、迟到 reservation/孤立 thread、模式写入 TOCTOU 与动态测试不足。实现 checkpoint `c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d`、tree `f536dc22379ef2f7b9c7f2470a14d9bdf19fa611` 增加单调 claim、存储同步 ownership guard、迟到资源精确清理和消息/启动无 `await` 提交区间。无重试源码门禁通过：`npm ci`、bundle `218.5kb`、13/13 Node 自测文件、reservation 43 项断言、ConversationStore 26/26、动态路由合同、branding 22 文件与 `git diff --check`；治理提交与 fresh exact-head review 仍待完成。
+- `2026-08-14 03:21:47 +08:00`：fresh reviewer 对治理 HEAD `d16f88cea639895a4a60f773fd7d21986e6f95f7`、tree `8c6abf42ac8e27538ad8d4fa3410228478287aa8` 返回 `REQUEST_CHANGES`（P1=2、P2=1），指出 claim fence 仍局限于单 thread、mode/workspace 保存失败未回滚，并缺少 `session.run()` 异常动态证据。源码 checkpoint `96a71dfb97f1ba272df01747d6ff94aa2b2640bc`、tree `3dcba8538116d63e7c2b4e1e56cdf3b24e7d67e5` 增加 owner+generation 最高 claim、保存失败条件回滚及动态 mutation 用例。无重试门禁通过：`npm ci`、bundle `218.5kb`、13/13、reservation 52 项、ConversationStore 32/32、动态路由合同、branding 22 与 `git diff --check`；治理提交和 fresh final review 待完成。
+- `2026-08-14 03:31:02 +08:00`：实现 checkpoint `8ef8ce328dc587e048ba75c2ee9e979b47af38de`、tree `70735af06e995f44f5199fb2dd43453474cb556a` 让非当前历史删除发布最新 claim，再以附属 reservation 删除目标；当前 thread 的旧 reservation 仍只能续约自身，不能跨目标复活。该 SHA 上重新无重试执行 `npm ci` 和完整 PowerShell 门禁，bundle `218.5kb`、13/13、reservation 52 项、ConversationStore 32/32、动态路由合同、branding 22 与 `git diff --check` 全部通过；final exact-head review 仍待治理提交后执行。

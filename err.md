@@ -76,3 +76,20 @@
 - 修复：实现 checkpoint `c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d`、tree `f536dc22379ef2f7b9c7f2470a14d9bdf19fa611` 将 reservation 加固为 `owner + generation + monotonic claim`；`ConversationStore` 在实际修改前同步校验 ownership。用户消息追加与 `session.run()` 位于同一无 `await` 提交区间；迟到资源按精确 claim 清理或移交；模式、工作目录和删除均在存储修改前失败关闭。
 - 验证：源码 checkpoint 后无重试执行 `npm ci` 和完整 PowerShell 门禁，sidebar bundle `218.5kb`、13/13 Node 自测文件、thread reservation 43 项断言、ConversationStore 26/26、multi-window routing 动态合同、branding 22 文件及 `git diff --check` 全部通过。该证据仍需绑定后续治理提交并接受 fresh exact-head reviewer。
 - 边界：`AgentSession.run()`、`callTool()`、每 thread sessions map 与 raw-tool 全局锁未修改；没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库没有 PR workflow，不能把本地门禁写成 CI 通过。
+
+## 2026-08-14：claim 只在单 thread 比较且配置保存失败未回滚
+
+- 取证时间：`2026-08-14 03:21:47 +08:00`。
+- 现象：fresh exact-head reviewer 对 `d16f88cea639895a4a60f773fd7d21986e6f95f7`、tree `8c6abf42ac8e27538ad8d4fa3410228478287aa8` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。旧 claim 在更新 claim 跨 thread 发布或释放后仍可重新认领空目标；`setThreadMode()` / `setThreadWorkspace()` 在 `_save()` 失败后把失败值留在内存。reviewer 同时指出缺少这两类 mutation 以及 `session.run()` 抛错/未 running 的动态覆盖。
+- 红测：reservation 生产方法动态测试新增跨 thread 发布、附属目标、当前 claim 释放后旧 claim 复活用例，旧实现 3 条失败；ConversationStore 新增 mode/workspace 保存失败回滚，旧实现 4 条失败；路由动态测试新增 `session.run()` 抛错和未进入 running 的消息回滚，两条在既有生产实现上直接通过并补足证据。
+- 修复：checkpoint `96a71dfb97f1ba272df01747d6ff94aa2b2640bc`、tree `3dcba8538116d63e7c2b4e1e56cdf3b24e7d67e5` 为每个 owner+generation 记录最高已发布 claim；低 claim 永久禁止新认领，仍可续约/释放自己原有 reservation。当前最高 claim 可认领附属删除目标，避免历史操作使当前 thread 失权。mode/workspace 保存异常只在字段与 `updatedAt` 仍属于本次 mutation 时回滚。
+- 验证：该源码 checkpoint 无重试通过 `npm ci` 与完整 PowerShell 门禁：bundle `218.5kb`、13/13 Node 自测文件、reservation 52 项断言、ConversationStore 32/32、multi-window routing 动态合同、branding 22 文件和 `git diff --check`。
+- 边界：只修改原 6 个源码/测试文件；`AgentSession.run()`、`callTool()`、sessions map 与 raw-tool 锁未修改。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仍需 fresh final exact-head 复审。
+
+## 2026-08-14：历史删除必须发布最新 claim
+
+- 取证时间：`2026-08-14 03:31:02 +08:00`。
+- 现象：owner+generation 最高 claim 已跨 thread 生效后，非当前历史删除若继续复用当前 thread 的旧 claim，会被跨目标单调 fence 拒绝，无法完成受控删除。
+- 修复：实现 checkpoint `8ef8ce328dc587e048ba75c2ee9e979b47af38de`、tree `70735af06e995f44f5199fb2dd43453474cb556a` 为非当前历史删除创建最新 claim；该 claim 只临时认领并释放删除目标，当前 thread 的旧 reservation 仍可精确续约自身。
+- 验证：在该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.5kb`、13/13 Node 自测文件、reservation 52 项断言、ConversationStore 32/32、multi-window routing 动态合同、branding 22 文件和 `git diff --check` 全部通过。
+- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库没有 PR workflow，以上仅为本地门禁证据。
