@@ -168,11 +168,21 @@ change_contract:
       why_adjacent: 历史列表仍需调用 openThread 并经过 acquireThread
       risk: 全面禁用 openThread 导致历史不可用
       owner: AgentPanel-history
+    - name: asynchronous-selection-commit
+      why_adjacent: 初始化、新对话、历史打开、流式回载和外部探测都可在 await 后回写选择相关状态
+      risk: 迟到结果覆盖用户后来开始的选择，或旧事务释放同 owner 更新操作的 reservation
+      owner: AgentPanel-selection-intent
+    - name: send-ownership-chain
+      why_adjacent: 发送在历史、模式、笔记和消息持久化之间跨越多个 await
+      risk: 一次续约后失权仍写入或启动旧 thread
+      owner: AgentPanel-send
   historical_state_refs:
     - v0.22.4 old route calls openThreadRef.current(target.id)
     - red contract test fails on the old route and passes on the current worktree
+    - reviewer git:42ff472263174d7cba38b38577d4a8312bd4a2d5 REQUEST_CHANGES P1=2 P2=3
   stale_verdict_invalidation_refs:
-    - 工作树测试结果只属于未提交状态，提交后必须重新验证 final SHA
+    - git:42ff472263174d7cba38b38577d4a8312bd4a2d5 reviewer verdict is failed historical evidence, not final approval
+    - 工作树测试结果只属于实现提交 3f9f961；治理提交后必须对 final exact HEAD/tree 重新审查
   regression_checks:
     - surface: external-running-routing
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
@@ -183,6 +193,9 @@ change_contract:
     - surface: sidebar-and-agent-tooling
       command_or_evidence_ref: build.md#完整轻量门禁
       expected_result: bundle, 13 selftests and branding all pass
+    - surface: asynchronous-selection-and-send-races
+      command_or_evidence_ref: node selftest-multi-window-routing.mjs
+      expected_result: dynamic selection revision/intent/pending and renew failure mutations are rejected; call-site ordering remains guarded
   sibling_regression_guard:
     status: passed
     closeout_rule: passed-or-blocked-before-done
@@ -194,9 +207,9 @@ change_contract:
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: git:b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1
+        post_change_replay_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3
         expected_result: reservation suite and aggregate selftests pass
-        actual_result: PowerShell 完整链通过 sidebar bundle、13/13 Node 自测文件和 branding 22 文件检查；reservation 22 项断言与 multi-window routing 合同通过
+        actual_result: PowerShell 完整链通过 sidebar bundle 215.0kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 22 项断言与动态 selection-intent multi-window routing 合同通过
         owner_visible_status: passed
         regression_status: passed
     forbidden_ops_until_replay: []
@@ -227,16 +240,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: git:b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1-sidebar-and-13-selftests-pass
+    result_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: git:b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1-bundle-211.4kb
+    result_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3-bundle-215.0kb
   review:
     command_ref: build.md#独立审查
-    result_ref: git:ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e-request-changes-p1-new-thread-claim-race; final exact-head rereview pending
+    result_ref: git:42ff472263174d7cba38b38577d4a8312bd4a2d5-request-changes-p1-2-p2-3; fresh final exact-head rereview pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: git:b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1-lockfile-agent-session-and-diff-boundaries-pass
+    result_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3-lockfile-agent-session-and-diff-boundaries-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -248,6 +261,8 @@ execution_evidence:
 - fork 基线与上游 v0.22.4 源码提交均为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；tag object 为 `95def86131787fd0945bea1d951623828d1a2987`。
 - 本任务不修改或启动本机已安装浏览器；fork 合并不等于安装包已更新。
 - `2026-08-13 19:02:06 +08:00`：Windows PowerShell 完整轻量门禁通过，侧栏 bundle 为 209.8kb；13/13 Node 自测文件、thread reservation 22 项断言、新 multi-window routing 合同与 branding 22 文件检查全部通过。WSL/Git Bash 聚合入口的两次失败均发生在 bundle 工具链启动阶段，未形成产品测试失败，详情见 `err.md`。
-- `2026-08-13 19:10:06 +08:00`：实现提交 `dfd91c6751feeeab48aeffd6ddac6dd42af3612f`、tree `1009baeba729b9969f39fa2b26e9ab5e1799c40a` 上重新执行 `npm ci` 与完整 PowerShell 门禁，结果再次全部通过。`origin/main` 与 `upstream/main` 均仍为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；GitHub Actions workflow 数为 0，因此后续 PR 使用明确 no-PR-CI 记录，不触发 release。
+- `2026-08-13 19:10:06 +08:00`：实现提交 `dfd91c6751feeeab48aeffd6ddac6dd42af3612f`、tree `1009baeba729b9969f39fa2b26e9ab5e1799c40a` 上重新执行 `npm ci` 与完整 PowerShell 门禁，结果再次全部通过。`origin/main` 与 `upstream/main` 均仍为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；仓库有发布用 `release.yml`，但没有 pull-request workflow，因此后续 PR 使用明确 `no-PR-CI` 记录且不触发 release。
 - `2026-08-13 19:50:40 +08:00`：独立 reviewer 对 `ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e` 返回 `REQUEST_CHANGES`，确认新 thread 在 `createThread()` 与 `acquireThread()` 之间可被其它窗口抢占，且创建者与 heartbeat 都会忽略失权。旧结论保留，不记为通过。
 - `2026-08-13 19:50:40 +08:00`：修复提交 `b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1`、tree `549fb36b1b27f52f6002951484c76b1a076a3625` 统一了三条创建路径的有界精确认领，并让 heartbeat 失权后按选择代际恢复。`npm ci` 与最终 PowerShell 完整门禁通过：bundle `211.4kb`、13/13 Node 自测文件、reservation 22 项断言和 branding 22 文件；最终 exact-head 独立复审仍待执行。
+- `2026-08-13 22:11:10 +08:00`：独立 reviewer 对治理 HEAD `42ff472263174d7cba38b38577d4a8312bd4a2d5`、tree `7984406d3abd65f6e5da030c2c163416667c6c66` 返回 `REQUEST_CHANGES`（P1=2、P2=3）。失败证据包括初始化迟到覆盖新选择、发送跨多个 await 后失权仍继续、reservation API 缺失失败开放、关键竞态缺动态 mutation 保护以及旧治理 SHA/无 PR CI 表述漂移。
+- `2026-08-13 22:11:10 +08:00`：实现提交 `3f9f961c1728a9f735222667b139458b32fc0ea3`、tree `c102564f779c727f44d00e2632124d7bebe1c4d1` 使用最小 selection intent 事务闭合迟到初始化/新对话/历史打开与失权恢复；发送每个异步阶段后重新续约并在最后一次验证后无 await 启动；缺 reservation API 失败关闭。源码冻结门禁通过：`npm ci`、bundle `215.0kb`、13/13 Node 自测文件、reservation 22 项断言、动态路由合同、branding 22 文件和 `git diff --check`。最终治理 HEAD/tree 与 fresh exact-head review 仍待完成。

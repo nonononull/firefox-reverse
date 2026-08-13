@@ -34,7 +34,11 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-thread-reservatio
 - 首个新 thread 被其它窗口抢先认领时，只绑定随后成功认领的 thread。
 - 连续三次认领失败后停止并报错，不删除已被其它窗口认领的空 thread。
 - `renewThread()` 返回 `false` 或抛错时立即进入失权恢复；旧 heartbeat 不得覆盖用户随后选择的新 thread。
-- 初始化、发送前建会话和“新对话”必须统一经过有界认领入口。
+- 缺少 `acquireThread`、`renewThread` 或 `releaseThread` 任一 reservation API 时失败关闭，不创建或打开未受保护的 thread。
+- 初始化、新对话和历史打开在第一个异步读取前登记选择 intent；相同 thread ID/revision 下的更新 intent 也会淘汰旧异步结果。
+- 发送链在每个异步准备阶段后同时核验 selection intent 与 `renewThread()`；失权时不启动任务并保留输入。
+- 选择事务的 pending 标记只由匹配 intent 清除；旧事务结束不得清除更新事务。
+- 初始化、发送前建会话和“新对话”统一经过有界精确认领入口。
 
 第二项验证 owner token、心跳、TTL 与同 thread 独占保持不变。
 
@@ -78,6 +82,9 @@ Unix/release 环境可继续执行 `bash scripts/selftest-agent-tools.sh`。本�
 - 历史列表仍调用 `openThread()` 并经过 `acquireThread()`。
 - 新建 thread 只有在 `acquireThread()` 返回精确目标 ID 后才能绑定；失败重试有固定上限。
 - `renewThread()` 返回 `false` 或抛错后不得继续使用旧 thread。
+- 初始化、新对话、历史打开、流式回载和外部运行探测的异步结果必须同时匹配 thread ID 与选择代际；选择型操作还必须匹配 intent。
+- 发送从落用户消息到 `session.run()` 的每个 `await` 后都必须重新续约并验证 intent；最后一次验证与 `session.run()` 之间不得再有 `await`。
+- 迟到的新建 thread 必须释放；同 owner 的迟到历史认领不能释放更新操作的 reservation，只能等待既有 TTL 回收。
 - `AgentSession.sys.mjs` 未修改，同 thread 独占和 raw-tool 全局保护保持原状。
 - reviewer 结论必须绑定 exact HEAD/tree；最后一次源码变更后旧结论失效。
 

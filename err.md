@@ -49,3 +49,12 @@
 - 修复：`AgentPanel.jsx` 的初始化、`ensureThread()` 和 `newChat()` 统一使用最多三次的 `createOwnedThread()`；只有认领返回精确目标 ID 才绑定。心跳失权后先解除旧选择，再创建独立 thread，并用选择代际防止迟到恢复覆盖用户的新选择；发送前同步发现失权时保留输入并要求重新发送。
 - 验证：实现提交 `b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1`、tree `549fb36b1b27f52f6002951484c76b1a076a3625` 上，`npm ci`、sidebar bundle `211.4kb`、13/13 Node 自测文件、thread reservation 22 项断言、branding 22 文件和 `git diff --check` 均通过。
 - 边界：未修改 `AgentSession.sys.mjs`、底层 owner token/TTL/raw-tool 锁、浏览器安装包、Reverse Lab、Pingbo、Bet365、账号或 live；仓库无 PR workflow，本地门禁不能写成 CI 通过。
+
+## 2026-08-13：迟到初始化和发送链可在失权后继续使用旧 thread
+
+- 取证时间：`2026-08-13 22:11:10 +08:00`。
+- 现象：独立 reviewer 对 `42ff472263174d7cba38b38577d4a8312bd4a2d5` 返回 `REQUEST_CHANGES`（P1=2、P2=3）。初始化只防卸载，不能防用户随后开始新对话或打开历史；发送在一次续约后跨多个 `await`，失权后仍可能写旧 thread 并启动；缺 reservation API 时仍失败开放；测试和最终治理证据也不充分。
+- 红测：`selftest-multi-window-routing.mjs` 动态执行 reservation、selection revision、selection intent、pending 事务和精确 ID helper；同时锁定初始化、新对话、历史打开、失权恢复和发送链的调用顺序。相同 ID/revision 但 intent 已更新、错误非空 ID、`renewThread=false`/异常、旧事务结束清新 pending 等 mutation 均会失败。
+- 修复：实现提交 `3f9f961c1728a9f735222667b139458b32fc0ea3`、tree `c102564f779c727f44d00e2632124d7bebe1c4d1` 为选择型操作增加有界 intent 事务；异步结果提交前核验 ID/revision/intent；发送每个异步阶段后重新续约，失权时不启动并保留输入；reservation API 不完整时失败关闭。迟到的新建 thread 主动释放，迟到历史认领不清除同 owner 的更新 reservation。
+- 验证：源码冻结工作树执行 `npm ci`、sidebar bundle `215.0kb`、13/13 Node 自测文件、thread reservation 22 项断言、multi-window routing 动态合同、branding 22 文件、`git diff --check` 均通过；`AgentSession.sys.mjs` 与 `package-lock.json` 零改动。
+- 边界：没有启动 Firefox、账号、live、Reverse Lab、Pingbo 或 Bet365；fork 仓库只有 `release.yml`，没有 pull request workflow，故该结果为本地门禁而非 CI。
