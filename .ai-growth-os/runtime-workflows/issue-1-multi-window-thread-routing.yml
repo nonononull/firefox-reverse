@@ -13,7 +13,7 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
 approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:85796ac460e127ab0a9adaca4cddec7ea27e5f62"
+snapshot_ref: "git:2b0c6a743f9311ccd7543cd4c557dd845d187dbc"
 task_scope_boundary: project-local-owner-scope
 task_current_state: final-review-delivery
 mutation_admission_status: project-local-owner-scope-required
@@ -26,5 +26,5 @@ verification_commands:
   - git diff --check
 rollout_draft:
   closeout_ref: issue-1-multi-window-thread-routing
-  validation_attribution: "2026-08-14 05:56:36 +08:00; implementation snapshot 4f52a4fdf45481da908e2c467a80ec16c68d32f2 tree d12dd5bc6829ac7172bb6644c5558caba8e7c7cb; governance snapshot 85796ac460e127ab0a9adaca4cddec7ea27e5f62 tree f6e8c7fdd9638008646bd7093ad4ae330a516638; npm ci; sidebar bundle 218.6kb; 13/13 Node selftest files; reservation 57/57; ConversationStore 32/32; failed higher-claim publication and production delete helper routing contracts; branding 22 files; reviewer e84e4b1 REQUEST_CHANGES P1=1 P2=2 retained; f92d937 provider 503 and reviewers 019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71 shutdown without verdict; fresh final exact-head rereview pending; no pull-request CI"
+  validation_attribution: "2026-08-14 07:31:10 +08:00; implementation snapshot 69a514e76550adc8d563f739c0c9f132bb3aeb88 tree 9c0396e2d7d6fa100b7fea8b6ad58b4f1920d541; governance snapshot 2b0c6a743f9311ccd7543cd4c557dd845d187dbc tree 56a156b1f322820ee704fd6fc83c72d71060663c; npm ci; sidebar bundle 220.4kb; 13/13 Node selftest files; reservation 57/57; ConversationStore 42/42; director legacy signatures, shared cold load, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer bc639e34389331ebc950989e4b431160992b7f06 REQUEST_CHANGES P1=3 P2=1 by 019ffd25-55db-7473-aab5-a42ac5c9b963 retained; f92d937 provider 503 and reviewers 019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71 shutdown without verdict; fresh final exact-head rereview pending; no pull-request CI"
   follow_up_required: true
