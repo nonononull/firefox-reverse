@@ -943,16 +943,21 @@ function makeClaimSession() {
     /mode update authorization lost/,
     "旧默认模式 intent 不得覆盖后来发布的用户模式 intent",
   );
+  let modeGuardThread = null;
   await setOwnedThreadMode(
     configWriteStore,
     configWriteThread.id,
     "assist",
-    () => sameThreadConfigIntent(writeIntentRef, userIntent),
+    thread => {
+      modeGuardThread = thread;
+      return sameThreadConfigIntent(writeIntentRef, userIntent);
+    },
   );
   finishThreadConfigIntent(pendingConfigRef, defaultIntent);
   assert.equal(pendingConfigRef.current, userIntent, "旧配置操作结束不得清除较新的 pending intent");
   finishThreadConfigIntent(pendingConfigRef, userIntent);
   assert.equal(pendingConfigRef.current, null, "当前配置操作结束必须清除自己的 pending intent");
+  assert.equal(modeGuardThread?.id, configWriteThread.id, "mode helper 必须把权威 thread 传给显式 guard");
   assert.equal((await configWriteStore.getThread(configWriteThread.id)).mode, "assist");
 
   let workspaceGuardThread = null;
@@ -982,7 +987,7 @@ function makeClaimSession() {
       {
         async setThreadMode(id, value, guard) {
           const thread = { id, mode: null };
-          if (typeof guard !== "function" || guard(thread) !== true) {
+          if (guard !== undefined && guard !== null && guard(thread) !== true) {
             throw new Error("conversation mode update authorization lost: " + id);
           }
           return { ...thread, mode: value };
@@ -1000,7 +1005,7 @@ function makeClaimSession() {
       {
         async setThreadWorkspace(id, value, guard) {
           const thread = { id, workspace: null };
-          if (typeof guard !== "function" || guard(thread) !== true) {
+          if (guard !== undefined && guard !== null && guard(thread) !== true) {
             throw new Error("conversation workspace update authorization lost: " + id);
           }
           return { ...thread, workspace: value };
