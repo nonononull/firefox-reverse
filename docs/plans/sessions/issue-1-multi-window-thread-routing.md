@@ -194,7 +194,7 @@ change_contract:
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: local-worktree-2026-08-13-19-02-06
+        post_change_replay_ref: git:dfd91c6751feeeab48aeffd6ddac6dd42af3612f
         expected_result: reservation suite and aggregate selftests pass
         actual_result: PowerShell 完整链通过 sidebar bundle、13/13 Node 自测文件和 branding 22 文件检查；reservation 22 项断言与 multi-window routing 合同通过
         owner_visible_status: passed
@@ -227,16 +227,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: local-worktree-2026-08-13-19-02-06-sidebar-and-13-selftests-pass
+    result_ref: git:dfd91c6751feeeab48aeffd6ddac6dd42af3612f-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: local-worktree-2026-08-13-19-02-06-bundle-209.8kb
+    result_ref: git:dfd91c6751feeeab48aeffd6ddac6dd42af3612f-bundle-209.8kb
   review:
     command_ref: build.md#独立审查
     result_ref: pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: local-worktree-2026-08-13-19-02-06-lockfile-agent-session-and-diff-boundaries-pass
+    result_ref: git:dfd91c6751feeeab48aeffd6ddac6dd42af3612f-lockfile-agent-session-and-diff-boundaries-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -248,3 +248,4 @@ execution_evidence:
 - fork 基线与上游 v0.22.4 源码提交均为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；tag object 为 `95def86131787fd0945bea1d951623828d1a2987`。
 - 本任务不修改或启动本机已安装浏览器；fork 合并不等于安装包已更新。
 - `2026-08-13 19:02:06 +08:00`：Windows PowerShell 完整轻量门禁通过，侧栏 bundle 为 209.8kb；13/13 Node 自测文件、thread reservation 22 项断言、新 multi-window routing 合同与 branding 22 文件检查全部通过。WSL/Git Bash 聚合入口的两次失败均发生在 bundle 工具链启动阶段，未形成产品测试失败，详情见 `err.md`。
+- `2026-08-13 19:10:06 +08:00`：实现提交 `dfd91c6751feeeab48aeffd6ddac6dd42af3612f`、tree `1009baeba729b9969f39fa2b26e9ab5e1799c40a` 上重新执行 `npm ci` 与完整 PowerShell 门禁，结果再次全部通过。`origin/main` 与 `upstream/main` 均仍为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；GitHub Actions workflow 数为 0，因此后续 PR 使用明确 no-PR-CI 记录，不触发 release。
