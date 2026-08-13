@@ -555,7 +555,14 @@ function restoreUnsentInput(current, unsent) {
   return unsent + "\n" + current;
 }
 
-async function deleteOwnedThread(conversations, session, threadId, reservation, releaseOnFailure = false) {
+async function deleteOwnedThread(
+  conversations,
+  session,
+  threadId,
+  reservation,
+  releaseOnFailure = false,
+  alreadyOwned = false,
+) {
   if (!hasThreadReservation(session) || typeof session.isRunning !== "function") {
     throw new Error("多窗口会话预留或运行状态接口不完整，已拒绝删除历史会话。");
   }
@@ -564,14 +571,18 @@ async function deleteOwnedThread(conversations, session, threadId, reservation, 
   }
   const deleteReservation = Number.isInteger(reservation?.claim) ? reservation : null;
   let deleted = false;
-  const acquired = deleteReservation
-    ? acquireOwnedThread(session, [threadId], deleteReservation)
-    : null;
+  const acquired = alreadyOwned
+    ? (deleteReservation && renewOwnedThread(session, threadId, deleteReservation, () => {})
+      ? threadId
+      : null)
+    : (deleteReservation ? acquireOwnedThread(session, [threadId], deleteReservation) : null);
   if (acquired !== threadId) {
     if (acquired) {
       releaseOwnedThread(session, acquired, deleteReservation);
     }
-    throw new Error("该会话已在另一个浏览器窗口打开，不能删除。");
+    throw new Error(alreadyOwned
+      ? "该会话的窗口预留已失效，不能删除。"
+      : "该会话已在另一个浏览器窗口打开，不能删除。");
   }
   try {
     if (session.isRunning(threadId)) {
@@ -1698,7 +1709,14 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       const deleteReservation = deletingCurrent
         ? reservationForSelection(reservationRef.current, currentSelection)
         : createReservationClaim(reservationRef.current);
-      await deleteOwnedThread(conversations, session, id, deleteReservation, !deletingCurrent);
+      await deleteOwnedThread(
+        conversations,
+        session,
+        id,
+        deleteReservation,
+        !deletingCurrent,
+        deletingCurrent,
+      );
       const list = await refreshThreads();
       if (!sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
         return;

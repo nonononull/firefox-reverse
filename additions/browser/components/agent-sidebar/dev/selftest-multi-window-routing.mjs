@@ -55,6 +55,12 @@ const history = section(
   '<button type="button" className="agent-history__del"',
 );
 assert.match(history, /onClick=\{\(\) => openThread\(t\.id\)\}/);
+const historyDeletion = section("async function deleteThread", "function onKeyDown");
+assert.match(
+  historyDeletion,
+  /deleteOwnedThread\([\s\S]*?!deletingCurrent,[\s\S]*?deletingCurrent,[\s\S]*?\)/,
+  "当前删除必须验证既有 reservation，非当前删除仍使用临时 claim",
+);
 
 const hasThreadReservation = sourceFunction("hasThreadReservation", "function");
 const sameSelection = sourceFunction("sameSelection", "function");
@@ -365,7 +371,7 @@ function makeClaimSession() {
   session.renewThread = () => false;
   const releaseBeforeCurrentFailure = releaseCount;
   await assert.rejects(
-    () => deleteOwnedThread(conversations, session, "target", currentClaim),
+    () => deleteOwnedThread(conversations, session, "target", currentClaim, false, true),
     /预留已失效/,
   );
   assert.equal(
@@ -844,6 +850,23 @@ function makeClaimSession() {
     true,
     "附属删除发布更高 claim 后，当前 thread 的旧 reservation 仍可续约",
   );
+  let currentDeleted = false;
+  await deleteOwnedThread(
+    {
+      async deleteThread(id, canDelete) {
+        assert.equal(id, "current");
+        assert.equal(canDelete(), true);
+        currentDeleted = true;
+      },
+    },
+    session,
+    "current",
+    currentClaim,
+    false,
+    true,
+  );
+  assert.equal(currentDeleted, true, "附属删除后仍必须能删除自己持有的当前 thread");
+  assert.equal(session.reservations.has("current"), false, "当前 thread 删除成功后必须释放既有 reservation");
 }
 
 const reservationLifecycle = section(
