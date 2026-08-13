@@ -184,24 +184,22 @@ change_contract:
       command_or_evidence_ref: build.md#完整轻量门禁
       expected_result: bundle, 13 selftests and branding all pass
   sibling_regression_guard:
-    status: pending
+    status: passed
     closeout_rule: passed-or-blocked-before-done
     exception_ref: none
   protected_feature_replay:
-    status: pending
+    status: passed
     known_good_features:
       - feature: thread reservation and current-thread recovery
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: pending-final-sha
+        post_change_replay_ref: local-worktree-2026-08-13-19-02-06
         expected_result: reservation suite and aggregate selftests pass
-        actual_result: pending
-        owner_visible_status: pending
-        regression_status: pending
-    forbidden_ops_until_replay:
-      - merge
-      - claim-done
+        actual_result: PowerShell 完整链通过 sidebar bundle、13/13 Node 自测文件和 branding 22 文件检查；reservation 22 项断言与 multi-window routing 合同通过
+        owner_visible_status: passed
+        regression_status: passed
+    forbidden_ops_until_replay: []
 ```
 
 ## Independent Verification Policy
@@ -229,16 +227,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: pending-final-sha
+    result_ref: local-worktree-2026-08-13-19-02-06-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: pending-final-sha
+    result_ref: local-worktree-2026-08-13-19-02-06-bundle-209.8kb
   review:
     command_ref: build.md#独立审查
     result_ref: pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: pending
+    result_ref: local-worktree-2026-08-13-19-02-06-lockfile-agent-session-and-diff-boundaries-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -249,3 +247,4 @@ execution_evidence:
 - 取证时间：`2026-08-13 18:52:34 +08:00`。
 - fork 基线与上游 v0.22.4 源码提交均为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；tag object 为 `95def86131787fd0945bea1d951623828d1a2987`。
 - 本任务不修改或启动本机已安装浏览器；fork 合并不等于安装包已更新。
+- `2026-08-13 19:02:06 +08:00`：Windows PowerShell 完整轻量门禁通过，侧栏 bundle 为 209.8kb；13/13 Node 自测文件、thread reservation 22 项断言、新 multi-window routing 合同与 branding 22 文件检查全部通过。WSL/Git Bash 聚合入口的两次失败均发生在 bundle 工具链启动阶段，未形成产品测试失败，详情见 `err.md`。
