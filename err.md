@@ -112,3 +112,12 @@
 - 验证：该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.6kb`、13/13 Node 自测文件、thread reservation 57/57、ConversationStore 32/32、multi-window routing 生产删除 helper 动态合同、branding 22 文件和 `git diff --check` 全部通过。
 - 审查台账：`f92d93752aecbec3edf33bce5486fe8d95935371` 的 reviewer 因 provider 503 结束，无 findings/verdict；reviewer `019ffcda-2437-7791-a95a-54cab6ca68a8` 与 `019ffcee-5f0d-7892-977e-eced1beb2c71` 均因长期无输出被 shutdown，无 findings/verdict。三次无 verdict 均不是批准，也不得覆盖任何 `REQUEST_CHANGES`。
 - 边界：没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 pull-request workflow，上述证据是实现快照本地门禁，不是 CI。治理提交后仍需 fresh exact-head reviewer 返回 `APPROVE P0=0 P1=0 P2=0` 才可合并。
+
+## 2026-08-14：Store 兼容入口与发送配置仍有并发缺口
+
+- 取证时间：`2026-08-14 07:31:10 +08:00`。
+- 现象：fresh reviewer `019ffd25-55db-7473-aab5-a42ac5c9b963` 对 `bc639e34389331ebc950989e4b431160992b7f06`、tree `30452ce51ddea0474665c745ea3bd386f0b6c405` 返回 `REQUEST_CHANGES`（P1=3、P2=1）。旧实现把 `ConversationStore.createThread()`、mode/workspace 和 user append 强制改成必须提供 UI guard，破坏 `frx-director-mcp` 的既有旧签名；首次并发 `_load()` 可互相覆盖 `_mem`；`notes.digest()` 等待期间的 mode/workspace 变化不会淘汰旧发送；并发保存失败还可能把失败字段夹带进后续成功快照。
+- 红测：ConversationStore 自测复现 director 三参数 create 与无 guard mode/workspace/message 调用、共享冷启动读取和并发保存失败隔离；multi-window routing 动态执行权威配置读取、digest 等待竞态、默认 mode 与用户 mode 的配置 intent 竞争、线性化点 mode/workspace guard、缺失 thread 和漏传 guard mutation。
+- 修复：实现提交 `c7672eb319c81fb06f605e9a4ec1ef642be59e7a` 增加共享 `_loadPromise` 与串行 mutation queue，在显式 guard 存在时保持 UI 失败关闭、未提供时兼容 director 旧签名；发送改为 digest 后读取权威 thread 配置，并在最终消息提交点复核配置 intent 与 mode/workspace。最终测试加固提交 `69a514e76550adc8d563f739c0c9f132bb3aeb88`、tree `9c0396e2d7d6fa100b7fea8b6ad58b4f1920d541` 让 React mode/workspace 统一走显式 guard helper，并证明旧默认 `auto` 不能覆盖后来发布的用户模式。
+- 验证：在 `69a514e76550adc8d563f739c0c9f132bb3aeb88` 内容上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `220.4kb`、13/13 Node 自测文件、thread reservation 57/57、ConversationStore 42/42、multi-window routing 合同、branding 22 文件和 `git diff --check` 全部通过。
+- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或公共 reservation API；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。该本地证据不是 final approval，治理提交后仍需 fresh exact-head reviewer。
