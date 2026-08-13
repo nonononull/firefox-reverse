@@ -263,7 +263,8 @@ function hasThreadReservation(session) {
 
 function sameSelection(current, expected) {
   return !!current && !!expected &&
-    current.id === expected.id && current.revision === expected.revision;
+    current.id === expected.id && current.revision === expected.revision &&
+    current.claim === expected.claim;
 }
 
 function captureSelectionIntent(selectionRef, intentRef) {
@@ -304,7 +305,28 @@ function createReservationOwner(session, host) {
   if (host && Number.isInteger(generation)) {
     host.__frxAgentOwnerGeneration = generation;
   }
-  return { owner, generation, host };
+  return { owner, generation, host, claimState: { next: 0 } };
+}
+
+function createReservationClaim(reservation) {
+  if (!isReservationOwnerCurrent(reservation)) {
+    return null;
+  }
+  if (!reservation.claimState) {
+    reservation.claimState = { next: 0 };
+  }
+  reservation.claimState.next += 1;
+  return {
+    ...reservation,
+    claim: reservation.claimState.next,
+  };
+}
+
+function reservationForSelection(reservation, selection) {
+  if (!selection || !Number.isInteger(selection.claim) || selection.claim <= 0) {
+    return null;
+  }
+  return { ...reservation, claim: selection.claim };
 }
 
 function reservationOwnerToken(reservation) {
@@ -321,13 +343,14 @@ function isReservationOwnerCurrent(reservation) {
 }
 
 function acquireOwnedThread(session, candidateIds, reservation) {
-  if (!isReservationOwnerCurrent(reservation)) {
+  if (!isReservationOwnerCurrent(reservation) || !Number.isInteger(reservation.claim) || reservation.claim <= 0) {
     return null;
   }
   return session.acquireThread(
     candidateIds,
     reservationOwnerToken(reservation),
     reservation.generation,
+    reservation.claim,
   );
 }
 
@@ -339,6 +362,7 @@ function releaseOwnedThread(session, threadId, reservation) {
         threadId,
         reservationOwnerToken(reservation),
         reservation.generation,
+        reservation.claim,
       ) === true;
     }
   } catch {
@@ -359,26 +383,113 @@ function keepOwnedThreadForSelection(
   if (sameSelectionIntent(selectionRef, intentRef, expected)) {
     return true;
   }
-  if (releaseWhenStale && thread && selectionRef.current.id !== thread.id) {
+  if (releaseWhenStale && thread) {
     releaseOwnedThread(session, thread.id, reservation);
   }
   return false;
 }
 
-async function createOwnedThread(conversations, session, reservation) {
-  if (!hasThreadReservation(session)) {
+async function createOwnedThread(conversations, session, reservation, canCreate = () => true) {
+  if (!hasThreadReservation(session) || !conversations ||
+      typeof conversations.createThread !== "function" || typeof conversations.deleteThread !== "function") {
     throw new Error("多窗口会话预留 API 不完整，已拒绝创建未受保护的会话。");
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (!isReservationOwnerCurrent(reservation)) {
       throw new Error("当前窗口挂载代际已失效，已拒绝创建迟到会话。");
     }
-    const thread = await conversations.createThread();
-    if (acquireOwnedThread(session, [thread.id], reservation) === thread.id) {
-      return thread;
+    const claim = createReservationClaim(reservation);
+    let candidateId = null;
+    let authorized = false;
+    let stale = false;
+    try {
+      const thread = await conversations.createThread(undefined, null, null, candidate => {
+        candidateId = candidate.id;
+        if (canCreate() !== true) {
+          stale = true;
+          return false;
+        }
+        const acquired = acquireOwnedThread(session, [candidate.id], claim);
+        if (acquired && acquired !== candidate.id) {
+          releaseOwnedThread(session, acquired, claim);
+        }
+        authorized = acquired === candidate.id;
+        return authorized;
+      });
+      if (!authorized) {
+        throw new Error("ConversationStore 未在线性化点执行新会话认领。");
+      }
+      const selectionCurrent = canCreate() === true;
+      if (!selectionCurrent || !renewOwnedThread(session, thread.id, claim, () => {})) {
+        await discardOwnedThread(conversations, session, thread.id, claim);
+        if (selectionCurrent) {
+          throw new Error("conversation creation authorization lost: " + thread.id);
+        }
+        throw new Error("会话选择已变化，已清理或移交迟到的新会话。");
+      }
+      return { thread, reservation: claim };
+    } catch (e) {
+      if (candidateId) {
+        releaseOwnedThread(session, candidateId, claim);
+      }
+      if (stale) {
+        throw new Error("会话选择已变化，已拒绝写入迟到的新会话。");
+      }
+      const rejected = /creation authorization lost/.test(String(e?.message || e));
+      if (!rejected || !isReservationOwnerCurrent(reservation)) {
+        throw e;
+      }
     }
   }
   throw new Error("连续创建的新会话均被其它窗口认领，无法认领新会话。");
+}
+
+async function discardOwnedThread(conversations, session, threadId, reservation) {
+  try {
+    await conversations.deleteThread(
+      threadId,
+      () => renewOwnedThread(session, threadId, reservation, () => {}),
+    );
+  } catch (e) {
+    if (!/deletion authorization lost/.test(String(e?.message || e))) {
+      throw e;
+    }
+  } finally {
+    releaseOwnedThread(session, threadId, reservation);
+  }
+}
+
+async function commitOwnedUserMessage(
+  conversations,
+  session,
+  threadId,
+  message,
+  runOptions,
+  canCommit,
+  onCommitted,
+  commitState,
+) {
+  if (!conversations || typeof conversations.appendMessage !== "function" ||
+      !session || typeof session.run !== "function" || typeof session.isRunning !== "function") {
+    throw new Error("会话存储或 Agent 运行接口不完整，已拒绝发送。");
+  }
+  await conversations.appendMessage(
+    threadId,
+    message,
+    () => canCommit() === true && !session.isRunning(threadId),
+    thread => {
+      session.run(threadId, { ...runOptions, convo: [...thread.messages] });
+      if (!session.isRunning(threadId)) {
+        throw new Error("Agent 未进入运行态，已回滚本次用户消息。");
+      }
+      commitState.started = true;
+      try {
+        onCommitted(thread);
+      } catch {
+        /* UI 回调失败不能回滚已启动任务。 */
+      }
+    },
+  );
 }
 
 function renewOwnedThread(session, threadId, reservation, onLost) {
@@ -389,6 +500,7 @@ function renewOwnedThread(session, threadId, reservation, onLost) {
           threadId,
           reservationOwnerToken(reservation),
           reservation.generation,
+          reservation.claim,
         ) === true) {
       return true;
     }
@@ -397,6 +509,25 @@ function renewOwnedThread(session, threadId, reservation, onLost) {
   }
   onLost();
   return false;
+}
+
+async function readAcquiredThread(conversations, session, threadId, reservation, canKeep) {
+  let keep = false;
+  try {
+    const thread = await conversations.getThread(threadId);
+    if (!thread) {
+      return null;
+    }
+    if (canKeep() !== true || !renewOwnedThread(session, threadId, reservation, () => {})) {
+      throw new Error("conversation read authorization lost: " + threadId);
+    }
+    keep = true;
+    return thread;
+  } finally {
+    if (!keep) {
+      releaseOwnedThread(session, threadId, reservation);
+    }
+  }
 }
 
 function ownsSelectedThread(session, selectionRef, expected, reservation) {
@@ -431,23 +562,35 @@ async function deleteOwnedThread(conversations, session, threadId, reservation) 
   if (session.isRunning(threadId)) {
     throw new Error("该会话正在运行，不能删除。");
   }
-  if (acquireOwnedThread(session, [threadId], reservation) !== threadId) {
+  const temporaryClaim = !Number.isInteger(reservation?.claim);
+  const deleteReservation = temporaryClaim ? createReservationClaim(reservation) : reservation;
+  let deleted = false;
+  const acquired = deleteReservation
+    ? acquireOwnedThread(session, [threadId], deleteReservation)
+    : null;
+  if (acquired !== threadId) {
+    if (acquired) {
+      releaseOwnedThread(session, acquired, deleteReservation);
+    }
     throw new Error("该会话已在另一个浏览器窗口打开，不能删除。");
   }
   try {
     if (session.isRunning(threadId)) {
       throw new Error("该会话正在运行，不能删除。");
     }
-    if (!renewOwnedThread(session, threadId, reservation, () => {})) {
+    if (!renewOwnedThread(session, threadId, deleteReservation, () => {})) {
       throw new Error("该会话的窗口预留已失效，不能删除。");
     }
     await conversations.deleteThread(
       threadId,
       () => !session.isRunning(threadId) &&
-        renewOwnedThread(session, threadId, reservation, () => {}),
+        renewOwnedThread(session, threadId, deleteReservation, () => {}),
     );
+    deleted = true;
   } finally {
-    releaseOwnedThread(session, threadId, reservation);
+    if (temporaryClaim || deleted) {
+      releaseOwnedThread(session, threadId, deleteReservation);
+    }
   }
 }
 
@@ -475,12 +618,16 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   const curThinkRef = useRef(-1); // 当前正在流式追加的 think(思考) step 下标
   const [extRunning, setExtRunning] = useState(null); // 外部(MCP)驱动、本面板没在显示的会话（横幅提示用）
   const mountedRef = useRef(false);
-  const selectionRef = useRef({ id: null, revision: 0 });
+  const selectionRef = useRef({ id: null, revision: 0, claim: null });
   const selectionIntentRef = useRef(0);
   const pendingSelectionIntentRef = useRef(null);
 
-  function selectCurrentThread(id) {
-    selectionRef.current = { id, revision: selectionRef.current.revision + 1 };
+  function selectCurrentThread(id, reservation = null) {
+    selectionRef.current = {
+      id,
+      revision: selectionRef.current.revision + 1,
+      claim: id ? reservation?.claim || null : null,
+    };
     setCurrentId(id);
   }
 
@@ -522,7 +669,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   useEffect(() => {
     let cancelled = false;
     let pendingOwnedId = null;
-    let createdOwnedThread = false;
+    let pendingReservation = null;
     const initialSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
     (async () => {
       try {
@@ -539,37 +686,44 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         // 多窗口隔离：认领"最近且没被别的窗口占用"的线程续看；被占（另一窗口正用）或无历史 → 新建空线程给本窗口，
         // 确保两个浏览器窗口绝不绑同一条线程（否则对话/进度/工作目录全串）。
         const latest = list.length > 0 ? list[0].id : null;
-        const acquired = latest ? acquireOwnedThread(session, [latest], reservationRef.current) : null;
+        pendingReservation = latest ? createReservationClaim(reservationRef.current) : null;
+        const acquired = latest ? acquireOwnedThread(session, [latest], pendingReservation) : null;
         let id = acquired === latest ? latest : null;
+        if (acquired && acquired !== latest) {
+          releaseOwnedThread(session, acquired, pendingReservation);
+        }
         pendingOwnedId = id;
-        let t = id ? await conversations.getThread(id) : null;
-        if (cancelled || !sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
+        let t = id ? await readAcquiredThread(
+          conversations,
+          session,
+          id,
+          pendingReservation,
+          () => !cancelled && sameSelectionIntent(
+            selectionRef,
+            selectionIntentRef,
+            initialSelection,
+          ),
+        ) : null;
+        if (!t) {
           if (id) {
-            keepOwnedThreadForSelection(
+            pendingOwnedId = null;
+          }
+          const created = await createOwnedThread(
+            conversations,
+            session,
+            reservationRef.current,
+            () => !cancelled && sameSelectionIntent(
               selectionRef,
               selectionIntentRef,
               initialSelection,
-              { id },
-              session,
-              reservationRef.current,
-            );
-            pendingOwnedId = null;
-          }
-          return;
-        }
-        if (!t) {
-          if (id) {
-            releaseOwnedThread(session, id, reservationRef.current);
-            pendingOwnedId = null;
-          }
-          t = await createOwnedThread(conversations, session, reservationRef.current);
+            ),
+          );
+          t = created.thread;
+          pendingReservation = created.reservation;
           pendingOwnedId = t.id;
-          createdOwnedThread = true;
         }
         if (cancelled) {
-          if (createdOwnedThread || !mountedRef.current) {
-            releaseOwnedThread(session, t.id, reservationRef.current);
-          }
+          releaseOwnedThread(session, t.id, pendingReservation);
           pendingOwnedId = null;
           return;
         }
@@ -579,12 +733,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
           initialSelection,
           t,
           session,
-          reservationRef.current,
-          createdOwnedThread,
+          pendingReservation,
+          true,
         );
         pendingOwnedId = null;
         if (keepThread) {
-          selectCurrentThread(t.id);
+          selectCurrentThread(t.id, pendingReservation);
           setMessages(t.messages || []);
           bindWorkspace(effectiveWorkspace(t));
           setMode((t && t.mode) || null);
@@ -592,9 +746,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         }
       } catch (e) {
         if (pendingOwnedId) {
-          if (createdOwnedThread || !mountedRef.current) {
-            releaseOwnedThread(session, pendingOwnedId, reservationRef.current);
-          }
+          releaseOwnedThread(session, pendingOwnedId, pendingReservation);
           pendingOwnedId = null;
         }
         if (!cancelled && sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
@@ -605,9 +757,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     return () => {
       cancelled = true;
       if (pendingOwnedId) {
-        if (createdOwnedThread || !mountedRef.current) {
-          releaseOwnedThread(session, pendingOwnedId, reservationRef.current);
-        }
+        releaseOwnedThread(session, pendingOwnedId, pendingReservation);
         pendingOwnedId = null;
       }
     };
@@ -630,7 +780,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       return undefined;
     }
     const reservation = reservationRef.current;
-    const leaseSelection = { id: currentId, revision: selectionRef.current.revision };
+    const leaseSelection = { ...selectionRef.current };
+    const leaseReservation = reservationForSelection(reservation, leaseSelection);
     let heartbeat = null;
     let recovering = false;
     const recover = async () => {
@@ -652,7 +803,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         pendingSelectionIntentRef,
       );
       const recoveryRevision = selectionRef.current.revision + 1;
-      selectionRef.current = { id: null, revision: recoveryRevision };
+      selectionRef.current = { id: null, revision: recoveryRevision, claim: null };
       const recoverySelection = {
         ...selectionRef.current,
         intent: recoveryOperation.intent,
@@ -667,7 +818,17 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       setMode(null);
       setError("当前会话的窗口预留已失效，正在创建当前窗口的独立会话。");
       try {
-        const thread = await createOwnedThread(conversations, session, reservation);
+        const created = await createOwnedThread(
+          conversations,
+          session,
+          reservation,
+          () => mountedRef.current && sameSelectionIntent(
+            selectionRef,
+            selectionIntentRef,
+            recoverySelection,
+          ),
+        );
+        const thread = created.thread;
         if (
           !mountedRef.current ||
           !keepOwnedThreadForSelection(
@@ -676,13 +837,13 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
             recoverySelection,
             thread,
             session,
-            reservation,
+            created.reservation,
             true,
           )
         ) {
           return;
         }
-        selectCurrentThread(thread.id);
+        selectCurrentThread(thread.id, created.reservation);
         bindWorkspace(effectiveWorkspace(thread));
         setMode((thread && thread.mode) || null);
         setError("原会话已由另一个窗口接管，已为当前窗口创建独立会话。");
@@ -703,7 +864,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       if (!sameSelection(selectionRef.current, leaseSelection)) {
         return;
       }
-      renewOwnedThread(session, currentId, reservation, () => void recover());
+      renewOwnedThread(session, currentId, leaseReservation, () => void recover());
     };
     renew(); // 立即续一次（覆盖 acquire 与首个心跳之间的空窗）
     if (!recovering && session.renewThread) {
@@ -715,7 +876,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef.current.id !== currentId ||
         sameSelection(selectionRef.current, leaseSelection)
       ) {
-        releaseOwnedThread(session, currentId, reservation);
+        releaseOwnedThread(session, currentId, leaseReservation);
       }
     };
     let win = null;
@@ -749,7 +910,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       return undefined;
     }
     let disposed = false;
-    const effectSelection = { id: currentId, revision: selectionRef.current.revision };
+    const effectSelection = { ...selectionRef.current };
     let timer = null;
     let lastCkpt = 0; // 已处理到的 checkpoint 序号（本轮起始为 0）
     const tick = async () => {
@@ -839,7 +1000,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         if (stopped || selectionRef.current.id !== currentId) {
           return;
         }
-        const observedSelection = { id: currentId, revision: selectionRef.current.revision };
+        const observedSelection = { ...selectionRef.current };
         const running = session.listRunning() || [];
         // ① 自愈：停在一条在跑的会话却没 busy → 补绑目录 + 补开流式
         if (currentId && !busy && running.some(r => r.id === currentId)) {
@@ -919,7 +1080,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef,
         selectionIntentRef,
         operationSelection,
-        reservationRef.current,
+        reservationForSelection(reservationRef.current, operationSelection),
       )) {
         return { id: operationSelection.id, reservationLost: false, selection: operationSelection };
       }
@@ -938,9 +1099,19 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         reservationLost = true;
       }
 
-      const t = await createOwnedThread(conversations, session, reservationRef.current);
+      const created = await createOwnedThread(
+        conversations,
+        session,
+        reservationRef.current,
+        () => mountedRef.current && sameSelectionIntent(
+          selectionRef,
+          selectionIntentRef,
+          operationSelection,
+        ),
+      );
+      const t = created.thread;
       if (!mountedRef.current) {
-        releaseOwnedThread(session, t.id, reservationRef.current);
+        releaseOwnedThread(session, t.id, created.reservation);
         throw new Error("Agent 面板已关闭，已释放迟到的新会话。");
       }
       if (!keepOwnedThreadForSelection(
@@ -949,12 +1120,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         operationSelection,
         t,
         session,
-        reservationRef.current,
+        created.reservation,
         true,
       )) {
         throw new Error("会话选择已变化，已释放迟到的新会话。");
       }
-      selectCurrentThread(t.id);
+      selectCurrentThread(t.id, created.reservation);
       const selected = captureSelectionIntent(selectionRef, selectionIntentRef);
       if (reservationLost) {
         setMessages([]);
@@ -1011,10 +1182,24 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }
   // 用户选目录：绑定 + 仅持久化到**当前会话**（不再记为全局默认 → 新会话保持为空）
   async function setWorkspaceForThread(path) {
-    bindWorkspace(path);
+    const workspaceSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
+    const workspaceReservation = reservationForSelection(reservationRef.current, workspaceSelection);
     try {
-      if (currentId && conversations.setThreadWorkspace) {
-        await conversations.setThreadWorkspace(currentId, path || null);
+      if (workspaceSelection.id && conversations.setThreadWorkspace) {
+        await conversations.setThreadWorkspace(
+          workspaceSelection.id,
+          path || null,
+          () => ownsSelectedThreadForIntent(
+            session,
+            selectionRef,
+            selectionIntentRef,
+            workspaceSelection,
+            workspaceReservation,
+          ),
+        );
+        if (sameSelectionIntent(selectionRef, selectionIntentRef, workspaceSelection)) {
+          bindWorkspace(path);
+        }
       }
       refreshThreads();
     } catch {
@@ -1172,21 +1357,20 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     }
     setError(null);
     const userMsg = { role: "user", content: text };
-    setMessages([...messages, userMsg]); // 乐观显示；发给模型的权威历史下面从持久化 store 读
     setInput("");
     resetSteps();
     atBottomRef.current = true; // 发送即贴底，跟随本次回复
     autoApproveRef.current = false;
     let sendSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
-    let runStarted = false;
+    const commitState = { started: false };
     try {
       const ensured = await ensureThread();
       sendSelection = ensured.selection;
       if (ensured.reservationLost) {
-        setInput(current => restoreUnsentInput(current, text));
         throw new Error("原会话已由另一个窗口接管，已为当前窗口创建独立会话，请重新发送。");
       }
       const tid = ensured.id;
+      const sendReservation = reservationForSelection(reservationRef.current, sendSelection);
       const ensureStillOwned = () => {
         if (!mountedRef.current ||
             !ownsSelectedThreadForIntent(
@@ -1194,26 +1378,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
               selectionRef,
               selectionIntentRef,
               sendSelection,
-              reservationRef.current,
+              sendReservation,
             )) {
-          setInput(current => restoreUnsentInput(current, text));
           throw new Error("当前会话的窗口预留已失效，已停止发送且未启动任务，请重新发送。");
         }
       };
       ensureStillOwned();
-      // 发给模型的会话历史从**持久化 store** 读（不靠 React messages state——settle 重载有竞态、
-      // 切栏重挂载也会让它陈旧 → 之前"同一会话里回一轮就失忆"的根因）。store 是权威、含全部已落盘轮次。
-      let convo = [...messages, userMsg];
-      let t0 = null;
-      try {
-        t0 = await conversations.getThread(tid);
-      } catch {
-        /* 取不到就用乐观值 */
-      }
-      ensureStillOwned();
-      if (t0 && Array.isArray(t0.messages) && t0.messages.length) {
-        convo = [...t0.messages, userMsg];
-      }
       // 系统提示：工作目录（动态）+ 当前站点历史笔记摘要（只读、不累积）。
       let sys = workspaceDir
         ? SYSTEM +
@@ -1228,7 +1398,14 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       if (mode == null) {
         try {
           if (conversations.setThreadMode) {
-            await conversations.setThreadMode(tid, "auto");
+            await conversations.setThreadMode(tid, "auto", () => {
+              try {
+                ensureStillOwned();
+                return true;
+              } catch {
+                return false;
+              }
+            });
           }
         } catch {
           /* 持久化失败不影响本会话内生效 */
@@ -1247,31 +1424,45 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       if (dg) {
         sys += `\n\n${dg}`;
       }
-      await conversations.appendMessage(tid, userMsg);
-      ensureStillOwned();
       const confirmMode = !!(store && store.getConfirmTools && store.getConfirmTools());
-      setBusy(true); // → 触发轮询 useEffect 流式刷 UI
-      // 引擎在常驻模块跑：切侧栏面板重载也不中断；UI 由轮询驱动(见上面 useEffect)，
-      // done/error 由引擎自己落盘，故这里**不 await、不 finalize**。
-      // assist=AI辅助逐阶段：引擎不跨回合自动续（每个 turn 结束交回用户等其选方向）。
-      session.run(tid, { systemPrompt: sys, convo, confirmMode, assist: effMode === "assist", maxRounds: 80, maxPerTool: 40,
-        // 工作目录随会话注入到每条工具调用的 ctx，WorkspaceBackend 优先使用 ctx.workspaceRoot，
-        // 实现多窗口/多会话并发时各自操作各自的目录、互不干扰。
-        workspaceRoot: workspaceDir || null,
-        // 把**本侧栏所在的 chrome 窗口**注入 ctx.win——所有定位标签页的工具(page_eval/导航/点击/
-        // webapi/jsvmp trace/signer_trace/whitebox)优先打**本窗口**的当前 tab，而非"全局聚焦窗口"，
-        // 两个浏览器窗口并发跑各自的 Agent 时互不打错 tab。topChromeWindow 不随焦点变。
-        win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
-      });
-      runStarted = true;
+      await commitOwnedUserMessage(
+        conversations,
+        session,
+        tid,
+        userMsg,
+        {
+          systemPrompt: sys,
+          confirmMode,
+          assist: effMode === "assist",
+          maxRounds: 80,
+          maxPerTool: 40,
+          workspaceRoot: workspaceDir || null,
+          win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
+        },
+        () => {
+          try {
+            ensureStillOwned();
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        thread => {
+          setMessages([...thread.messages]);
+          setBusy(true);
+        },
+        commitState,
+      );
     } catch (e) {
-      if (!runStarted) {
+      if (!commitState.started) {
         setInput(current => restoreUnsentInput(current, text));
       }
       const errorSelection = e && e.selection ? e.selection : sendSelection;
       if (sameSelectionIntent(selectionRef, selectionIntentRef, errorSelection)) {
         setError((e?.message || String(e)) + (e?.body ? "\n— " + String(e.body).slice(0, 600) : ""));
-        setBusy(false);
+        if (!commitState.started) {
+          setBusy(false);
+        }
       }
     }
   }
@@ -1296,9 +1487,19 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       pendingSelectionIntentRef,
     );
     try {
-      const t = await createOwnedThread(conversations, session, reservationRef.current);
+      const created = await createOwnedThread(
+        conversations,
+        session,
+        reservationRef.current,
+        () => mountedRef.current && sameSelectionIntent(
+          selectionRef,
+          selectionIntentRef,
+          expectedSelection,
+        ),
+      );
+      const t = created.thread;
       if (!mountedRef.current) {
-        releaseOwnedThread(session, t.id, reservationRef.current);
+        releaseOwnedThread(session, t.id, created.reservation);
         return;
       }
       if (!keepOwnedThreadForSelection(
@@ -1307,12 +1508,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         expectedSelection,
         t,
         session,
-        reservationRef.current,
+        created.reservation,
         true,
       )) {
         return;
       }
-      selectCurrentThread(t.id);
+      selectCurrentThread(t.id, created.reservation);
       setMessages([]);
       setError(null);
       setShowHistory(false);
@@ -1342,27 +1543,31 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   async function chooseMode(m) {
     try {
       const { id: tid, selection } = await ensureThread();
+      const selectionReservation = reservationForSelection(reservationRef.current, selection);
       if (!ownsSelectedThreadForIntent(
         session,
         selectionRef,
         selectionIntentRef,
         selection,
-        reservationRef.current,
+        selectionReservation,
       )) {
         throw new Error("当前会话的窗口预留已失效，未修改执行模式。");
       }
-      setMode(m);
       if (conversations.setThreadMode) {
-        await conversations.setThreadMode(tid, m);
-        if (!ownsSelectedThreadForIntent(
-          session,
-          selectionRef,
-          selectionIntentRef,
-          selection,
-          reservationRef.current,
-        )) {
-          throw new Error("当前会话的窗口预留已失效，请在当前会话重新选择执行模式。");
-        }
+        await conversations.setThreadMode(
+          tid,
+          m,
+          () => ownsSelectedThreadForIntent(
+            session,
+            selectionRef,
+            selectionIntentRef,
+            selection,
+            selectionReservation,
+          ),
+        );
+      }
+      if (sameSelectionIntent(selectionRef, selectionIntentRef, selection)) {
+        setMode(m);
       }
     } catch (e) {
       setError(e?.message || String(e));
@@ -1379,6 +1584,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       selectionIntentRef,
       pendingSelectionIntentRef,
     );
+    let acquiredTarget = false;
+    let targetReservation = null;
+    let targetBound = false;
     try {
       if (!hasThreadReservation(session)) {
         setError("多窗口会话预留 API 不完整，已拒绝打开历史会话。");
@@ -1386,10 +1594,16 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         return;
       }
       // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
-      const acquiredTarget = id !== expectedSelection.id;
+      acquiredTarget = id !== expectedSelection.id;
+      targetReservation = acquiredTarget
+        ? createReservationClaim(reservationRef.current)
+        : reservationForSelection(reservationRef.current, expectedSelection);
       if (acquiredTarget) {
-        const got = acquireOwnedThread(session, [id], reservationRef.current);
+        const got = acquireOwnedThread(session, [id], targetReservation);
         if (got !== id) {
+          if (got) {
+            releaseOwnedThread(session, got, targetReservation);
+          }
           setError("该会话已在另一个浏览器窗口打开，不能在此窗口同时打开（避免对话串）。");
           setShowHistory(false);
           return;
@@ -1399,44 +1613,50 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef,
         selectionIntentRef,
         expectedSelection,
-        reservationRef.current,
+        targetReservation,
       )) {
         setError("当前会话的窗口预留已失效，无法重新打开该会话。");
         setShowHistory(false);
         return;
       }
-      const t = await conversations.getThread(id);
+      const t = acquiredTarget
+        ? await readAcquiredThread(
+            conversations,
+            session,
+            id,
+            targetReservation,
+            () => mountedRef.current && sameSelectionIntent(
+              selectionRef,
+              selectionIntentRef,
+              expectedSelection,
+            ),
+          )
+        : await conversations.getThread(id);
       if (!mountedRef.current) {
         if (acquiredTarget) {
-          releaseOwnedThread(session, id, reservationRef.current);
+          releaseOwnedThread(session, id, targetReservation);
         }
         return;
       }
-      if (!keepOwnedThreadForSelection(
-        selectionRef,
-        selectionIntentRef,
-        expectedSelection,
-        t || (acquiredTarget ? { id } : null),
-        session,
-        reservationRef.current,
-      )) {
+      if (!sameSelectionIntent(selectionRef, selectionIntentRef, expectedSelection)) {
         return;
       }
       if (!t) {
         if (acquiredTarget) {
-          releaseOwnedThread(session, id, reservationRef.current);
+          releaseOwnedThread(session, id, targetReservation);
         }
         setError("历史会话不存在或已被删除。");
         setShowHistory(false);
         return;
       }
-      if (!renewOwnedThread(session, id, reservationRef.current, () => {})) {
+      if (!acquiredTarget && !renewOwnedThread(session, id, targetReservation, () => {})) {
         setError("该会话的窗口预留已失效，无法打开。");
         setShowHistory(false);
         return;
       }
       if (acquiredTarget) {
-        selectCurrentThread(t.id);
+        selectCurrentThread(t.id, targetReservation);
+        targetBound = true;
       }
       setMessages(t.messages);
       setError(null);
@@ -1459,6 +1679,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         setShowHistory(false);
       }
     } finally {
+      if (acquiredTarget && !targetBound) {
+        releaseOwnedThread(session, id, targetReservation);
+      }
       finishSelectionIntent(pendingSelectionIntentRef, expectedSelection);
     }
   }
@@ -1471,7 +1694,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       pendingSelectionIntentRef,
     );
     try {
-      await deleteOwnedThread(conversations, session, id, reservationRef.current);
+      const currentSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
+      const deleteReservation = id === currentSelection.id
+        ? reservationForSelection(reservationRef.current, currentSelection)
+        : reservationRef.current;
+      await deleteOwnedThread(conversations, session, id, deleteReservation);
       const list = await refreshThreads();
       if (!sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
         return;

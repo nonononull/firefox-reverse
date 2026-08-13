@@ -115,7 +115,7 @@ function newState() {
     aborted: false,
     abort: null,
     subs: new Set(),
-    reservation: null, // 多窗口隔离：{ owner, generation, ts } 或 null。
+    reservation: null, // 多窗口隔离：{ owner, generation, claim, ts } 或 null。
     //   只有「owner 不同 且 心跳新鲜(未过 TTL)」才算被别的活窗口占用；过期/同 owner/空 → 可认领。
     //   修「切到别的插件侧栏再切回→该会话已在另一个窗口打开」：旧 reserved 布尔无持有者无存活性，
     //   文档异常拆除时 releaseThread 没跑→reserved 永真泄漏→同窗口重挂载误判成"别的窗口占用"。
@@ -288,8 +288,8 @@ export const agentSession = {
    *  都被别的活窗口占着返回 null（调用方应新建空线程给本窗口）。`owner`=本窗口稳定 token：
    *  同一 chrome 窗口切栏重挂载会传同一 token 和最新 generation → 立即重认领自己那条；
    *  缺 owner/generation 或旧 generation 时失败关闭。每个侧栏挂载/切线程时调。 */
-  acquireThread(candidateIds, owner, generation) {
-    if (reservationGenerations.get(owner) !== generation) {
+  acquireThread(candidateIds, owner, generation, claim) {
+    if (reservationGenerations.get(owner) !== generation || !Number.isInteger(claim) || claim <= 0) {
       return null;
     }
     const now = Date.now();
@@ -301,8 +301,9 @@ export const agentSession = {
       const r = s.reservation;
       // 仅「别的 owner 且心跳仍新鲜」= 真有另一个活窗口占用；自己持有 / 无预留 / 预留过期(持有者已销毁) → 认领
       const liveOther = r && r.owner !== owner && now - r.ts < RESERVE_TTL_MS;
-      if (!liveOther) {
-        s.reservation = { owner, generation, ts: now };
+      const newerSameMount = r && r.owner === owner && r.generation === generation && r.claim > claim;
+      if (!liveOther && !newerSameMount) {
+        s.reservation = { owner, generation, claim, ts: now };
         return id;
       }
     }
@@ -310,12 +311,13 @@ export const agentSession = {
   },
   /** 心跳续约：本窗口持有 currentId 期间定时调，刷新 ts 证明自己还活着→别的窗口在 TTL 内认领不到。
    *  仅当 owner 与 generation 都精确匹配时续；预留为空、过期后已被接管或代际过旧均返回 false。 */
-  renewThread(threadId, owner, generation) {
+  renewThread(threadId, owner, generation, claim) {
     const s = sessions.get(threadId);
-    if (!s || reservationGenerations.get(owner) !== generation) {
+    if (!s || reservationGenerations.get(owner) !== generation || !Number.isInteger(claim) || claim <= 0) {
       return false;
     }
-    if (s.reservation?.owner !== owner || s.reservation?.generation !== generation) {
+    if (s.reservation?.owner !== owner || s.reservation?.generation !== generation ||
+        s.reservation?.claim !== claim) {
       return false;                             // 已被别的活窗口接管，不抢回
     }
     s.reservation.ts = Date.now();
@@ -323,12 +325,14 @@ export const agentSession = {
   },
   /** 释放本窗口对某线程的预留（侧栏切走该线程 / pagehide / 关闭窗口时调）。释放后该线程可被任意窗口重开续看。
    *  仅精确匹配 owner 与 generation 时释放；旧式缺参调用失败关闭。引擎后台仍跑不受影响。 */
-  releaseThread(threadId, owner, generation) {
+  releaseThread(threadId, owner, generation, claim) {
     const s = sessions.get(threadId);
-    if (!s || !s.reservation || reservationGenerations.get(owner) !== generation) {
+    if (!s || !s.reservation || reservationGenerations.get(owner) !== generation ||
+        !Number.isInteger(claim) || claim <= 0) {
       return false;
     }
-    if (s.reservation.owner !== owner || s.reservation.generation !== generation) {
+    if (s.reservation.owner !== owner || s.reservation.generation !== generation ||
+        s.reservation.claim !== claim) {
       return false;                             // 不是自己的精确挂载代际，别动
     }
     s.reservation = null;
