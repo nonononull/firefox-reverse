@@ -253,6 +253,34 @@ const _CC = typeof Components !== "undefined" ? Components.classes : typeof Cc !
 const _CI = typeof Components !== "undefined" ? Components.interfaces : typeof Ci !== "undefined" ? Ci : null;
 const _SVC = typeof Services !== "undefined" ? Services : null;
 
+async function createOwnedThread(conversations, session, owner) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const thread = await conversations.createThread();
+    if (!session || !session.acquireThread) {
+      return thread;
+    }
+    if (session.acquireThread([thread.id], owner) === thread.id) {
+      return thread;
+    }
+  }
+  throw new Error("连续创建的新会话均被其它窗口认领，无法认领新会话。");
+}
+
+function renewOwnedThread(session, threadId, owner, onLost) {
+  if (!session.renewThread) {
+    return true;
+  }
+  try {
+    if (session.renewThread(threadId, owner) === true) {
+      return true;
+    }
+  } catch {
+    // 按失权处理，避免异常后继续使用旧 thread。
+  }
+  onLost();
+  return false;
+}
+
 export default function AgentPanel({ buildClient, conversations, store, router, runAgentTurn, session, isVisionModel, workspace, notes, toolNames = [], onOpenEnvironment, onOpenSettings, hidden = false }) {
   const [messages, setMessages] = useState([]); // 仅 user/assistant
   const [threads, setThreads] = useState([]); // 摘要列表
@@ -276,6 +304,20 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   const curTextRef = useRef(-1); // 当前正在流式追加的 text step 下标
   const curThinkRef = useRef(-1); // 当前正在流式追加的 think(思考) step 下标
   const [extRunning, setExtRunning] = useState(null); // 外部(MCP)驱动、本面板没在显示的会话（横幅提示用）
+  const mountedRef = useRef(false);
+  const selectionRef = useRef({ id: null, revision: 0 });
+
+  function selectCurrentThread(id) {
+    selectionRef.current = { id, revision: selectionRef.current.revision + 1 };
+    setCurrentId(id);
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // 多窗口预留的 owner token：同一 chrome 窗口内复用（切到别的侧栏再切回=文档重建，但宿主窗口不变）→
   // 重挂载传同一 token → 立即重认领自己那条会话，不受心跳 TTL 影响。取不到宿主窗口则退化为 per-mount 随机
@@ -326,24 +368,28 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         // 多窗口隔离：认领"最近且没被别的窗口占用"的线程续看；被占（另一窗口正用）或无历史 → 新建空线程给本窗口，
         // 确保两个浏览器窗口绝不绑同一条线程（否则对话/进度/工作目录全串）。
         const latest = list.length > 0 ? list[0].id : null;
-        let id = (latest && session && session.acquireThread) ? session.acquireThread([latest], ownerRef.current) : latest;
+        const acquired = (latest && session && session.acquireThread) ? session.acquireThread([latest], ownerRef.current) : latest;
+        let id = acquired === latest ? latest : null;
         let t = id ? await conversations.getThread(id) : null;
         if (!t) {
-          t = await conversations.createThread(); // 本窗口独立的新空线程（默认不绑目录，需手动「打开目录」）
-          id = t.id;
-          if (session && session.acquireThread) {
-            session.acquireThread([id], ownerRef.current);
+          if (id && session && session.releaseThread) {
+            session.releaseThread(id, ownerRef.current);
           }
+          t = await createOwnedThread(conversations, session, ownerRef.current);
         }
         if (!cancelled && t) {
-          setCurrentId(t.id);
+          selectCurrentThread(t.id);
           setMessages(t.messages || []);
           bindWorkspace(effectiveWorkspace(t));
           setMode((t && t.mode) || null);
           refreshThreads();
+        } else if (cancelled && t && session && session.releaseThread) {
+          session.releaseThread(t.id, ownerRef.current);
         }
       } catch (e) {
-        setError("加载历史失败：" + (e?.message || e));
+        if (!cancelled) {
+          setError("加载历史失败：" + (e?.message || e));
+        }
       }
     })();
     return () => {
@@ -368,15 +414,56 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       return undefined;
     }
     const owner = ownerRef.current;
-    const renew = () => {
+    let heartbeat = null;
+    let recovering = false;
+    const recover = async () => {
+      if (recovering || selectionRef.current.id !== currentId) {
+        return;
+      }
+      recovering = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      const recoveryRevision = selectionRef.current.revision + 1;
+      selectionRef.current = { id: null, revision: recoveryRevision };
+      setCurrentId(current => current === currentId ? null : current);
+      setMessages([]);
+      setBusy(false);
+      resetSteps();
+      setActiveTool(null);
+      setPendingConfirm(null);
+      bindWorkspace(null);
+      setMode(null);
+      setError("当前会话的窗口预留已失效，正在创建当前窗口的独立会话。");
       try {
-        session.renewThread && session.renewThread(currentId, owner);
-      } catch {
-        /* ignore */
+        const thread = await createOwnedThread(conversations, session, owner);
+        if (
+          !mountedRef.current ||
+          selectionRef.current.revision !== recoveryRevision ||
+          selectionRef.current.id !== null
+        ) {
+          session.releaseThread && session.releaseThread(thread.id, owner);
+          return;
+        }
+        selectCurrentThread(thread.id);
+        bindWorkspace(effectiveWorkspace(thread));
+        setMode((thread && thread.mode) || null);
+        setError("原会话已由另一个窗口接管，已为当前窗口创建独立会话。");
+        refreshThreads();
+      } catch (e) {
+        if (mountedRef.current && selectionRef.current.revision === recoveryRevision) {
+          setError("当前会话的窗口预留已失效，且无法创建独立会话：" + (e?.message || e));
+        }
       }
     };
+    const renew = () => {
+      renewOwnedThread(session, currentId, owner, () => void recover());
+    };
     renew(); // 立即续一次（覆盖 acquire 与首个心跳之间的空窗）
-    const hb = session.renewThread ? setInterval(renew, 3000) : null;
+    if (!recovering && session.renewThread) {
+      heartbeat = setInterval(renew, 3000);
+    }
     const release = () => {
       try {
         session.releaseThread && session.releaseThread(currentId, owner);
@@ -394,15 +481,15 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       win.addEventListener("pagehide", release);
     }
     return () => {
-      if (hb) {
-        clearInterval(hb);
+      if (heartbeat) {
+        clearInterval(heartbeat);
       }
       if (win && win.removeEventListener) {
         win.removeEventListener("pagehide", release);
       }
       release();
     };
-  }, [session, currentId]);
+  }, [session, currentId, conversations, refreshThreads]);
 
   // 流式渲染：**内容侧自有定时器轮询**常驻引擎状态来刷 UI。
   // 为何不靠引擎 push(订阅回调)：那是 system→content 跨 realm 的**同步**调用，且发生在引擎那个
@@ -549,14 +636,32 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }, [messages, busy, liveSteps]);
 
   async function ensureThread() {
+    let reservationLost = false;
     if (currentId) {
-      return currentId;
+      let ownsCurrent = true;
+      if (session) {
+        renewOwnedThread(session, currentId, ownerRef.current, () => {
+          ownsCurrent = false;
+        });
+      }
+      if (ownsCurrent) {
+        return { id: currentId, reservationLost: false };
+      }
+      selectCurrentThread(null);
+      reservationLost = true;
     }
-    const t = await conversations.createThread(); // 新会话不绑定目录（默认为空，需用户手动「打开目录」）
-    setCurrentId(t.id);
+    const t = await createOwnedThread(conversations, session, ownerRef.current);
+    selectCurrentThread(t.id);
+    if (reservationLost) {
+      setMessages([]);
+      setBusy(false);
+      resetSteps();
+      setActiveTool(null);
+      setPendingConfirm(null);
+    }
     bindWorkspace(effectiveWorkspace(t));
     setMode((t && t.mode) || null);
-    return t.id;
+    return { id: t.id, reservationLost };
   }
 
   // ---- 工作目录：绑定到当前会话；**新会话默认不绑定目录**（为空，需用户手动「打开目录」）----
@@ -752,7 +857,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     atBottomRef.current = true; // 发送即贴底，跟随本次回复
     autoApproveRef.current = false;
     try {
-      const tid = await ensureThread();
+      const ensured = await ensureThread();
+      if (ensured.reservationLost) {
+        setInput(current => current || text);
+        throw new Error("原会话已由另一个窗口接管，已为当前窗口创建独立会话，请重新发送。");
+      }
+      const tid = ensured.id;
       await conversations.appendMessage(tid, userMsg);
       // 发给模型的会话历史从**持久化 store** 读（不靠 React messages state——settle 重载有竞态、
       // 切栏重挂载也会让它陈旧 → 之前"同一会话里回一轮就失忆"的根因）。store 是权威、含全部已落盘轮次。
@@ -840,35 +950,36 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }
 
   async function newChat() {
-    const t = await conversations.createThread(); // 新会话不绑定目录（默认为空，需用户手动「打开目录」）
-    if (session && session.acquireThread) {
-      session.acquireThread([t.id], ownerRef.current); // 认领新线程（预留）→ 别的窗口认领不到，不会串对话
+    try {
+      const t = await createOwnedThread(conversations, session, ownerRef.current);
+      selectCurrentThread(t.id);
+      setMessages([]);
+      setError(null);
+      setShowHistory(false);
+      bindWorkspace(effectiveWorkspace(t));
+      setMode(null); // 新会话未选模式 → 空状态里弹「全自动 / AI辅助」选择卡
+      // 清掉上一条会话的「正在跑」实时显示（busy/liveSteps/活动工具/确认）——否则旧会话还在后台跑时
+      // 一点新建，新会话会赖着上一个 agent 的实时界面（旧引擎不中断、继续后台跑，切回去即续看）。
+      setBusy(false);
+      resetSteps();
+      setActiveTool(null);
+      setPendingConfirm(null);
+      refreshThreads();
+    } catch (e) {
+      setError(e?.message || String(e));
     }
-    setCurrentId(t.id);
-    setMessages([]);
-    setError(null);
-    setShowHistory(false);
-    bindWorkspace(effectiveWorkspace(t));
-    setMode(null); // 新会话未选模式 → 空状态里弹「全自动 / AI辅助」选择卡
-    // 清掉上一条会话的「正在跑」实时显示（busy/liveSteps/活动工具/确认）——否则旧会话还在后台跑时
-    // 一点新建，新会话会赖着上一个 agent 的实时界面（旧引擎不中断、继续后台跑，切回去即续看）。
-    setBusy(false);
-    resetSteps();
-    setActiveTool(null);
-    setPendingConfirm(null);
-    refreshThreads();
   }
 
   // 选模式：按会话持久化（一选定整条会话沿用，除非用户再点切换）。在 fresh 线程上选时先 ensureThread 落地线程。
   async function chooseMode(m) {
     setMode(m);
     try {
-      const tid = currentId || (await ensureThread());
+      const { id: tid } = await ensureThread();
       if (conversations.setThreadMode) {
         await conversations.setThreadMode(tid, m);
       }
-    } catch {
-      /* 持久化失败不影响本会话内生效 */
+    } catch (e) {
+      setError(e?.message || String(e));
     }
   }
   // 顶部 chip：手动切换模式（全自动 ⇄ AI辅助），随时可改。
@@ -880,7 +991,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
     if (id !== currentId && session && session.acquireThread) {
       const got = session.acquireThread([id], ownerRef.current);
-      if (!got) {
+      if (got !== id) {
         setError("该会话已在另一个浏览器窗口打开，不能在此窗口同时打开（避免对话串）。");
         setShowHistory(false);
         return;
@@ -888,7 +999,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     }
     const t = await conversations.getThread(id);
     if (t) {
-      setCurrentId(t.id);
+      selectCurrentThread(t.id);
       setMessages(t.messages);
       setError(null);
       bindWorkspace(effectiveWorkspace(t));
