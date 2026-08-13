@@ -13,7 +13,7 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
 approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:7e4bdd1c9256a34c83131a19a6cbcd8506645aa5"
+snapshot_ref: "git:85796ac460e127ab0a9adaca4cddec7ea27e5f62"
 task_scope_boundary: project-local-owner-scope
 task_current_state: final-review-delivery
 mutation_admission_status: project-local-owner-scope-required
@@ -26,5 +26,5 @@ verification_commands:
   - git diff --check
 rollout_draft:
   closeout_ref: issue-1-multi-window-thread-routing
-  validation_attribution: "2026-08-14 04:32:02 +08:00; implementation snapshot 4074d00ceb4606e3d22ae1294ba53cb8302cdf68 tree 47b165892ee4db71c3e61801efd32fd6359c1d09; npm ci; sidebar bundle 218.6kb; 13/13 Node selftest files; reservation 52/52; ConversationStore 32/32; current/non-current deletion routing contract; branding 22 files; reviewer d16f88c REQUEST_CHANGES retained; f92d937 review attempt ended in provider 503 without verdict; fresh final exact-head rereview pending; no pull-request CI"
+  validation_attribution: "2026-08-14 05:56:36 +08:00; implementation snapshot 4f52a4fdf45481da908e2c467a80ec16c68d32f2 tree d12dd5bc6829ac7172bb6644c5558caba8e7c7cb; governance snapshot 85796ac460e127ab0a9adaca4cddec7ea27e5f62 tree f6e8c7fdd9638008646bd7093ad4ae330a516638; npm ci; sidebar bundle 218.6kb; 13/13 Node selftest files; reservation 57/57; ConversationStore 32/32; failed higher-claim publication and production delete helper routing contracts; branding 22 files; reviewer e84e4b1 REQUEST_CHANGES P1=1 P2=2 retained; f92d937 provider 503 and reviewers 019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71 shutdown without verdict; fresh final exact-head rereview pending; no pull-request CI"
   follow_up_required: true
