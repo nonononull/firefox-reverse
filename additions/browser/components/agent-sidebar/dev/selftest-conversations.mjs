@@ -5,6 +5,7 @@ import { ConversationStore } from "../modules/ConversationStore.sys.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => (c ? (pass++, console.log("  ✓", m)) : (fail++, console.error("  ✗ FAIL:", m)));
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
 const s = new ConversationStore({ memoryOnly: true });
 
@@ -28,6 +29,52 @@ await s.appendMessage(t2.id, { role: "user", content: "第二个对话" }, () =>
 const list = await s.listThreads();
 ok(list[0].id === t2.id, "最近更新的线程排在前");
 ok(list.find(t => t.id === t1.id).count === 2, "摘要带消息计数");
+
+// frx-director-mcp 的既有 chromeScripts 使用旧签名，不传 UI ownership guard。
+const directorStore = new ConversationStore({ memoryOnly: true });
+const directorThread = await directorStore.createThread("MCP 任务", "D:\\mcp", "assist");
+await directorStore.setThreadWorkspace(directorThread.id, "D:\\director");
+await directorStore.setThreadMode(directorThread.id, "auto");
+await directorStore.appendMessage(directorThread.id, { role: "user", content: "外部 director 指令" });
+const directorResult = await directorStore.getThread(directorThread.id);
+ok(directorResult?.workspace === "D:\\director", "director 旧签名可更新工作目录");
+ok(directorResult?.mode === "auto", "director 旧签名可更新模式");
+ok(directorResult?.messages.at(-1)?.content === "外部 director 指令", "director 旧签名可追加 user 消息");
+
+// 首次持久化加载只能发布一个共享 Promise；两个窗口不能用迟到读取互相覆盖 _mem。
+const previousIOUtils = globalThis.IOUtils;
+let releaseColdRead;
+const coldReadGate = new Promise(resolve => { releaseColdRead = resolve; });
+let coldReadCount = 0;
+globalThis.IOUtils = {
+  async readJSON() {
+    coldReadCount += 1;
+    await coldReadGate;
+    return { threads: [] };
+  },
+  async writeJSON() {},
+};
+try {
+  const coldStore = new ConversationStore({ memoryOnly: false, path: "cold-conversations.json" });
+  const coldList = coldStore.listThreads();
+  const coldA = coldStore.createThread("A", null, null, () => true);
+  const coldB = coldStore.createThread("B", null, null, () => true);
+  while (coldReadCount === 0) {
+    await tick();
+  }
+  await tick();
+  releaseColdRead();
+  const [, threadA, threadB] = await Promise.all([coldList, coldA, coldB]);
+  const coldIds = new Set((await coldStore.listThreads()).map(thread => thread.id));
+  ok(coldReadCount === 1, "冷启动并发只读取一次持久化快照");
+  ok(coldIds.has(threadA.id) && coldIds.has(threadB.id), "冷启动并发创建的两条 thread 均保留");
+} finally {
+  if (previousIOUtils === undefined) {
+    delete globalThis.IOUtils;
+  } else {
+    globalThis.IOUtils = previousIOUtils;
+  }
+}
 
 const delayedCreateStore = new ConversationStore({ memoryOnly: true });
 const delayedCreateLoad = delayedCreateStore._load.bind(delayedCreateStore);
@@ -172,6 +219,41 @@ ok(workspaceSaveRejected, "setThreadWorkspace 透传保存失败");
 ok(saveFailureThread.workspace === null, "setThreadWorkspace 保存失败时回滚内存目录");
 ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadWorkspace 保存失败时回滚更新时间");
 saveFailureStore._save = originalSave;
+
+// mode/workspace 必须串行修改并保存；前一项失败后，后一项不能把失败值夹带写入。
+const interleavedStore = new ConversationStore({ memoryOnly: true });
+const interleavedThread = await interleavedStore.createThread(undefined, null, null, () => true);
+let releaseFirstSave;
+let signalFirstSave;
+const firstSaveStarted = new Promise(resolve => { signalFirstSave = resolve; });
+const firstSaveGate = new Promise(resolve => { releaseFirstSave = resolve; });
+let interleavedSaveCount = 0;
+const successfulSnapshots = [];
+interleavedStore._save = async () => {
+  interleavedSaveCount += 1;
+  if (interleavedSaveCount === 1) {
+    signalFirstSave();
+    await firstSaveGate;
+    throw new Error("mode save failed");
+  }
+  successfulSnapshots.push(JSON.parse(JSON.stringify(interleavedStore._mem)));
+};
+const failedModeSave = interleavedStore.setThreadMode(interleavedThread.id, "assist", () => true);
+await firstSaveStarted;
+const successfulWorkspaceSave = interleavedStore.setThreadWorkspace(
+  interleavedThread.id,
+  "D:\\serialized",
+  () => true,
+);
+await tick();
+releaseFirstSave();
+const [modeResult, workspaceResult] = await Promise.allSettled([failedModeSave, successfulWorkspaceSave]);
+const interleavedResult = await interleavedStore.getThread(interleavedThread.id);
+ok(modeResult.status === "rejected", "并发 mode 保存失败向调用方透传");
+ok(workspaceResult.status === "fulfilled", "后续 workspace 保存仍可成功");
+ok(interleavedResult.mode === null, "后续保存不保留失败的 mode 修改");
+ok(interleavedResult.workspace === "D:\\serialized", "后续保存保留自己的 workspace 修改");
+ok(successfulSnapshots.at(-1)?.threads[0]?.mode === null, "成功持久化快照不夹带失败 mode");
 
 await s.renameThread(t1.id, "RC4 入口分析");
 ok((await s.getThread(t1.id)).title === "RC4 入口分析", "renameThread 生效");

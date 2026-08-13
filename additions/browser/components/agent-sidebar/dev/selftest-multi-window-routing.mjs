@@ -139,6 +139,24 @@ const createOwnedThread = sourceFunction(
   },
 );
 const commitOwnedUserMessage = sourceFunction("commitOwnedUserMessage", "async function");
+const beginThreadConfigIntent = sourceFunction("beginThreadConfigIntent", "function");
+const captureThreadConfigIntent = sourceFunction("captureThreadConfigIntent", "function");
+const sameThreadConfigIntent = sourceFunction("sameThreadConfigIntent", "function");
+const finishThreadConfigIntent = sourceFunction("finishThreadConfigIntent", "function");
+const threadRunConfig = sourceFunction("threadRunConfig", "function");
+const sameThreadRunConfig = sourceFunction("sameThreadRunConfig", "function", { threadRunConfig });
+const setOwnedThreadMode = sourceFunction("setOwnedThreadMode", "async function");
+const setOwnedThreadWorkspace = sourceFunction("setOwnedThreadWorkspace", "async function");
+const readOwnedThreadRunConfig = sourceFunction(
+  "readOwnedThreadRunConfig",
+  "async function",
+  { threadRunConfig },
+);
+const prepareOwnedThreadRunConfig = sourceFunction(
+  "prepareOwnedThreadRunConfig",
+  "async function",
+  { readOwnedThreadRunConfig },
+);
 const restoreUnsentInput = sourceFunction("restoreUnsentInput", "function");
 const deleteOwnedThread = sourceFunction(
   "deleteOwnedThread",
@@ -831,6 +849,170 @@ function makeClaimSession() {
   );
   assert.equal(saveFailState.started, true, "任务启动后保存失败必须保留 started 状态");
   assert.equal(saveFailSession.runCalls.length, 1, "保存失败不得触发第二次任务启动");
+
+  const configIntentRef = { current: 0 };
+  const sendConfigIntent = captureThreadConfigIntent(configIntentRef);
+  let allowConfigRead;
+  const delayedConfigRead = readOwnedThreadRunConfig(
+    {
+      async getThread() {
+        await new Promise(resolve => { allowConfigRead = resolve; });
+        return { id: "config-thread", mode: "auto", workspace: "D:\\old" };
+      },
+    },
+    "config-thread",
+    () => sameThreadConfigIntent(configIntentRef, sendConfigIntent),
+  );
+  while (!allowConfigRead) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  beginThreadConfigIntent(configIntentRef);
+  allowConfigRead();
+  await assert.rejects(delayedConfigRead, /配置已变化/, "配置 intent 变化必须拒绝迟到读取");
+
+  const digestIntentRef = { current: 0 };
+  const digestConfigIntent = captureThreadConfigIntent(digestIntentRef);
+  let releaseDigest;
+  let signalDigest;
+  const digestStarted = new Promise(resolve => { signalDigest = resolve; });
+  const digestGate = new Promise(resolve => { releaseDigest = resolve; });
+  let configReadCount = 0;
+  const delayedPreparation = prepareOwnedThreadRunConfig(
+    {
+      async getThread() {
+        configReadCount += 1;
+        return { id: "digest-thread", mode: "auto", workspace: "D:\\old" };
+      },
+    },
+    "digest-thread",
+    {
+      async digest() {
+        signalDigest();
+        await digestGate;
+        return "digest";
+      },
+    },
+    () => sameThreadConfigIntent(digestIntentRef, digestConfigIntent),
+  );
+  await digestStarted;
+  beginThreadConfigIntent(digestIntentRef);
+  releaseDigest();
+  await assert.rejects(delayedPreparation, /配置已变化/, "digest 等待期间配置变化必须淘汰旧发送");
+  assert.equal(configReadCount, 1, "digest 后必须读取一次权威 thread 配置并执行 intent guard");
+
+  const configStore = new ConversationStore({ memoryOnly: true });
+  const configThread = await configStore.createThread(undefined, "D:\\old", "auto", () => true);
+  const expectedConfig = threadRunConfig(configThread);
+  await configStore.setThreadWorkspace(configThread.id, "D:\\new", () => true);
+  const configSession = makeClaimSession();
+  const configCommitState = { started: false };
+  let guardedThread = null;
+  await assert.rejects(
+    () => commitOwnedUserMessage(
+      configStore,
+      configSession,
+      configThread.id,
+      { role: "user", content: "不得使用旧目录" },
+      { workspaceRoot: expectedConfig.workspace },
+      thread => {
+        guardedThread = thread;
+        return sameThreadRunConfig(thread, expectedConfig);
+      },
+      () => {},
+      configCommitState,
+    ),
+    /append authorization lost/,
+  );
+  assert.equal(guardedThread?.id, configThread.id, "提交 guard 必须收到线性化点的权威 thread");
+  assert.equal(configSession.runCalls.length, 0, "配置变化后不得按旧目录启动任务");
+  assert.equal((await configStore.getThread(configThread.id)).messages.length, 0, "配置变化后不得写入用户消息");
+
+  const configWriteStore = new ConversationStore({ memoryOnly: true });
+  const configWriteThread = await configWriteStore.createThread(undefined, null, null, () => true);
+  const pendingConfigRef = { current: null };
+  const writeIntentRef = { current: 0 };
+  const defaultIntent = beginThreadConfigIntent(writeIntentRef, pendingConfigRef);
+  const userIntent = beginThreadConfigIntent(writeIntentRef, pendingConfigRef);
+  await assert.rejects(
+    () => setOwnedThreadMode(
+      configWriteStore,
+      configWriteThread.id,
+      "auto",
+      thread => thread.mode == null && sameThreadConfigIntent(writeIntentRef, defaultIntent),
+    ),
+    /mode update authorization lost/,
+    "旧默认模式 intent 不得覆盖后来发布的用户模式 intent",
+  );
+  await setOwnedThreadMode(
+    configWriteStore,
+    configWriteThread.id,
+    "assist",
+    () => sameThreadConfigIntent(writeIntentRef, userIntent),
+  );
+  finishThreadConfigIntent(pendingConfigRef, defaultIntent);
+  assert.equal(pendingConfigRef.current, userIntent, "旧配置操作结束不得清除较新的 pending intent");
+  finishThreadConfigIntent(pendingConfigRef, userIntent);
+  assert.equal(pendingConfigRef.current, null, "当前配置操作结束必须清除自己的 pending intent");
+  assert.equal((await configWriteStore.getThread(configWriteThread.id)).mode, "assist");
+
+  let workspaceGuardThread = null;
+  await setOwnedThreadWorkspace(
+    configWriteStore,
+    configWriteThread.id,
+    "D:\\guarded",
+    thread => {
+      workspaceGuardThread = thread;
+      return thread.id === configWriteThread.id;
+    },
+  );
+  assert.equal(workspaceGuardThread?.id, configWriteThread.id, "workspace helper 必须把权威 thread 传给显式 guard");
+  assert.equal((await configWriteStore.getThread(configWriteThread.id)).workspace, "D:\\guarded");
+  await assert.rejects(
+    () => setOwnedThreadMode(configWriteStore, "missing", "auto", () => true),
+    /会话已不存在/,
+    "受控 mode helper 不得把缺失 thread 当作成功",
+  );
+  await assert.rejects(
+    () => setOwnedThreadWorkspace(configWriteStore, "missing", "D:\\missing", () => true),
+    /会话已不存在/,
+    "受控 workspace helper 不得把缺失 thread 当作成功",
+  );
+  await assert.rejects(
+    () => setOwnedThreadMode(
+      {
+        async setThreadMode(id, value, guard) {
+          const thread = { id, mode: null };
+          if (typeof guard !== "function" || guard(thread) !== true) {
+            throw new Error("conversation mode update authorization lost: " + id);
+          }
+          return { ...thread, mode: value };
+        },
+      },
+      "unguarded",
+      "auto",
+      () => false,
+    ),
+    /mode update authorization lost/,
+    "mode helper 必须由 Store 执行显式 guard，不能仅依赖返回值",
+  );
+  await assert.rejects(
+    () => setOwnedThreadWorkspace(
+      {
+        async setThreadWorkspace(id, value, guard) {
+          const thread = { id, workspace: null };
+          if (typeof guard !== "function" || guard(thread) !== true) {
+            throw new Error("conversation workspace update authorization lost: " + id);
+          }
+          return { ...thread, workspace: value };
+        },
+      },
+      "unguarded",
+      "D:\\unguarded",
+      () => false,
+    ),
+    /workspace update authorization lost/,
+    "workspace helper 必须由 Store 执行显式 guard，不能仅依赖返回值",
+  );
 }
 
 {
@@ -941,7 +1123,18 @@ assert.match(newChat, /finally\s*\{\s*finishSelectionIntent\s*\(/);
 
 const send = section("async function send", "// 「停止」按钮");
 assert.match(send, /pendingSelectionIntentRef\.current\s*!==\s*null[\s\S]*return;/);
+assert.match(send, /pendingConfigIntentRef\.current\s*!==\s*null/);
+assert.match(send, /sendConfigIntent\s*=\s*captureThreadConfigIntent\(configIntentRef\)/);
 assert.match(send, /sendSelection\s*=\s*ensured\.selection;[\s\S]*ensured\.reservationLost/);
+assert.match(
+  send,
+  /sendConfigIntent\s*=\s*captureThreadConfigIntent\(configIntentRef\)[\s\S]*await prepareOwnedThreadRunConfig\s*\(/,
+  "发送配置 intent 必须在生产准备 helper 前捕获，期间变更会淘汰旧发送",
+);
+assert.match(send, /sameThreadConfigIntent\(configIntentRef,\s*sendConfigIntent\)/);
+assert.match(send, /workspaceRoot:\s*runConfig\.workspace/);
+assert.match(send, /assist:\s*runConfig\.mode\s*===\s*"assist"/);
+assert.doesNotMatch(send, /workspaceRoot:\s*workspaceDir/);
 assert.match(send, /await commitOwnedUserMessage\s*\(/);
 assert.match(send, /if\s*\(!commitState\.started\)\s*\{\s*setInput\(current\s*=>\s*restoreUnsentInput/);
 assert.doesNotMatch(send, /conversations\.appendMessage\s*\(/);
@@ -952,6 +1145,26 @@ assert.equal(
   (send.match(/setInput\(current\s*=>\s*restoreUnsentInput\(current,\s*text\)\)/g) || []).length,
   1,
   "只有原子提交尚未启动任务时才能恢复本次文本",
+);
+
+const workspaceUpdate = section("async function setWorkspaceForThread", "function directoryPathFromPicker");
+assert.match(workspaceUpdate, /beginThreadConfigIntent\(configIntentRef,\s*pendingConfigIntentRef\)/);
+assert.match(workspaceUpdate, /await setOwnedThreadWorkspace\s*\(/);
+assert.match(workspaceUpdate, /finishThreadConfigIntent\(pendingConfigIntentRef,/);
+const modeUpdate = section("async function chooseMode", "// 顶部 chip");
+assert.match(modeUpdate, /beginThreadConfigIntent\(configIntentRef,\s*pendingConfigIntentRef\)/);
+assert.match(modeUpdate, /await setOwnedThreadMode\s*\(/);
+assert.match(modeUpdate, /finishThreadConfigIntent\(pendingConfigIntentRef,/);
+
+assert.equal(
+  (source.match(/conversations\.setThreadMode\s*\(/g) || []).length,
+  1,
+  "AgentPanel 的所有 mode 写入必须统一经过显式 guard helper",
+);
+assert.equal(
+  (source.match(/conversations\.setThreadWorkspace\s*\(/g) || []).length,
+  1,
+  "AgentPanel 的所有 workspace 写入必须统一经过显式 guard helper",
 );
 
 const deleteHistory = section("async function deleteThread", "function onKeyDown");

@@ -289,6 +289,87 @@ function sameSelectionIntent(selectionRef, intentRef, expected) {
     sameSelection(selectionRef.current, expected);
 }
 
+function beginThreadConfigIntent(intentRef, pendingRef = null) {
+  intentRef.current += 1;
+  if (pendingRef) {
+    pendingRef.current = intentRef.current;
+  }
+  return intentRef.current;
+}
+
+function captureThreadConfigIntent(intentRef) {
+  return intentRef.current;
+}
+
+function sameThreadConfigIntent(intentRef, expected) {
+  return intentRef.current === expected;
+}
+
+function finishThreadConfigIntent(pendingRef, expected) {
+  if (pendingRef.current === expected) {
+    pendingRef.current = null;
+  }
+}
+
+async function setOwnedThreadMode(conversations, threadId, mode, canSet) {
+  if (!conversations || typeof conversations.setThreadMode !== "function") {
+    throw new Error("会话存储接口不完整，无法修改执行模式。");
+  }
+  const thread = await conversations.setThreadMode(threadId, mode, value => canSet(value) === true);
+  if (!thread) {
+    throw new Error("当前会话已不存在，无法修改执行模式。");
+  }
+  return thread;
+}
+
+async function setOwnedThreadWorkspace(conversations, threadId, workspace, canSet) {
+  if (!conversations || typeof conversations.setThreadWorkspace !== "function") {
+    throw new Error("会话存储接口不完整，无法修改工作目录。");
+  }
+  const thread = await conversations.setThreadWorkspace(threadId, workspace, value => canSet(value) === true);
+  if (!thread) {
+    throw new Error("当前会话已不存在，无法修改工作目录。");
+  }
+  return thread;
+}
+
+function threadRunConfig(thread) {
+  return {
+    mode: thread?.mode || "auto",
+    workspace: thread?.workspace || null,
+  };
+}
+
+function sameThreadRunConfig(thread, expected) {
+  const current = threadRunConfig(thread);
+  return !!expected && current.mode === expected.mode && current.workspace === expected.workspace;
+}
+
+async function readOwnedThreadRunConfig(conversations, threadId, canRead) {
+  if (!conversations || typeof conversations.getThread !== "function") {
+    throw new Error("会话存储接口不完整，无法读取执行配置。");
+  }
+  const thread = await conversations.getThread(threadId);
+  if (!thread) {
+    throw new Error("当前会话已不存在，已停止发送且未启动任务。");
+  }
+  if (canRead(thread) !== true) {
+    throw new Error("当前会话配置已变化，已停止发送且未启动任务，请重新发送。");
+  }
+  return threadRunConfig(thread);
+}
+
+async function prepareOwnedThreadRunConfig(conversations, threadId, notes, canRead) {
+  let digest = "";
+  try {
+    digest = notes && notes.digest ? await notes.digest({}) : "";
+  } catch {
+    /* 笔记可选，取不到不影响。 */
+  }
+  const runConfig = await readOwnedThreadRunConfig(conversations, threadId, canRead);
+  return { digest, runConfig };
+}
+
 function createReservationOwner(session, host) {
   let owner = null;
   if (host) {
@@ -476,7 +557,7 @@ async function commitOwnedUserMessage(
   await conversations.appendMessage(
     threadId,
     message,
-    () => canCommit() === true && !session.isRunning(threadId),
+    thread => canCommit(thread) === true && !session.isRunning(threadId),
     thread => {
       session.run(threadId, { ...runOptions, convo: [...thread.messages] });
       if (!session.isRunning(threadId)) {
@@ -652,6 +733,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   const selectionRef = useRef({ id: null, revision: 0, claim: null });
   const selectionIntentRef = useRef(0);
   const pendingSelectionIntentRef = useRef(null);
+  const configIntentRef = useRef(0);
+  const pendingConfigIntentRef = useRef(null);
 
   function selectCurrentThread(id, reservation = null) {
     selectionRef.current = {
@@ -1213,28 +1296,34 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }
   // 用户选目录：绑定 + 仅持久化到**当前会话**（不再记为全局默认 → 新会话保持为空）
   async function setWorkspaceForThread(path) {
+    const configIntent = beginThreadConfigIntent(configIntentRef, pendingConfigIntentRef);
     const workspaceSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
     const workspaceReservation = reservationForSelection(reservationRef.current, workspaceSelection);
     try {
-      if (workspaceSelection.id && conversations.setThreadWorkspace) {
-        await conversations.setThreadWorkspace(
+      if (workspaceSelection.id) {
+        await setOwnedThreadWorkspace(
+          conversations,
           workspaceSelection.id,
           path || null,
-          () => ownsSelectedThreadForIntent(
-            session,
-            selectionRef,
-            selectionIntentRef,
-            workspaceSelection,
-            workspaceReservation,
-          ),
+          () => sameThreadConfigIntent(configIntentRef, configIntent) &&
+            ownsSelectedThreadForIntent(
+              session,
+              selectionRef,
+              selectionIntentRef,
+              workspaceSelection,
+              workspaceReservation,
+            ),
         );
-        if (sameSelectionIntent(selectionRef, selectionIntentRef, workspaceSelection)) {
+        if (sameThreadConfigIntent(configIntentRef, configIntent) &&
+            sameSelectionIntent(selectionRef, selectionIntentRef, workspaceSelection)) {
           bindWorkspace(path);
         }
       }
       refreshThreads();
     } catch {
       /* ignore */
+    } finally {
+      finishThreadConfigIntent(pendingConfigIntentRef, configIntent);
     }
   }
   function directoryPathFromPicker(fp) {
@@ -1386,6 +1475,10 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       setError("正在切换会话，请稍后重试。");
       return;
     }
+    if (pendingConfigIntentRef.current !== null) {
+      setError("正在修改会话配置，请稍后重试。");
+      return;
+    }
     setError(null);
     const userMsg = { role: "user", content: text };
     setInput("");
@@ -1415,43 +1508,47 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         }
       };
       ensureStillOwned();
-      // 系统提示：工作目录（动态）+ 当前站点历史笔记摘要（只读、不累积）。
-      let sys = workspaceDir
+      if (pendingConfigIntentRef.current !== null) {
+        throw new Error("会话配置正在变化，已停止发送且未启动任务，请重新发送。");
+      }
+      const sendConfigIntent = captureThreadConfigIntent(configIntentRef);
+      const canUseSendConfig = thread => {
+        try {
+          ensureStillOwned();
+          return pendingConfigIntentRef.current === null &&
+            sameThreadConfigIntent(configIntentRef, sendConfigIntent) &&
+            !!thread;
+        } catch {
+          return false;
+        }
+      };
+      // 模式注入：未选过 → 落定全自动（与"全自动就是当前模式"一致，并持久化，之后不再弹选择卡）。
+      // 只在线性化点仍为空且配置代际未变化时写默认值；并发的用户选择优先。
+      try {
+        await setOwnedThreadMode(
+          conversations,
+          tid,
+          "auto",
+          thread => thread.mode == null && canUseSendConfig(thread),
+        );
+      } catch {
+        // 已有模式、并发配置或落盘失败都交给下面的权威读取和 guard 判定。
+      }
+      const prepared = await prepareOwnedThreadRunConfig(
+        conversations,
+        tid,
+        notes,
+        thread => canUseSendConfig(thread),
+      );
+      const { digest: dg, runConfig } = prepared;
+      setMode(runConfig.mode);
+      let sys = runConfig.workspace
         ? SYSTEM +
-          `\n\n【当前工作目录】${workspaceDir}\n用 fs_list/fs_read/fs_write 读写其中文件、run_node/run_python 在此目录执行脚本验证；jsvmp trace 自动镜像到其 jsvmp/ 子目录。把抓取的脚本、还原出的实现、笔记都存到这里。`
+          `\n\n【当前工作目录】${runConfig.workspace}\n用 fs_list/fs_read/fs_write 读写其中文件、run_node/run_python 在此目录执行脚本验证；jsvmp trace 自动镜像到其 jsvmp/ 子目录。把抓取的脚本、还原出的实现、笔记都存到这里。`
         : SYSTEM +
           `\n\n【当前工作目录】未设置。若任务需要读写文件或执行脚本，请提示用户点击侧边栏顶部「打开目录」选择一个本地目录。`;
       sys += "\n\n【浏览器环境】环境隔离、指纹配置和 MCP 指定环境由 env_* 工具链处理；Agent 对话页不做环境选择。";
-      // 模式注入：未选过 → 落定全自动（与"全自动就是当前模式"一致，并持久化，之后不再弹选择卡）。
-      // 注意：直接用已解析的 tid 落库，**不要**走 chooseMode()——它内部会 currentId||ensureThread()，
-      // 而此刻 setCurrentId 还没 flush（异步），会再建一条空线程并切走 currentId（run 却跑在原线程上）。
-      const effMode = mode || "auto";
-      if (mode == null) {
-        try {
-          if (conversations.setThreadMode) {
-            await conversations.setThreadMode(tid, "auto", () => {
-              try {
-                ensureStillOwned();
-                return true;
-              } catch {
-                return false;
-              }
-            });
-          }
-        } catch {
-          /* 持久化失败不影响本会话内生效 */
-        }
-        ensureStillOwned();
-        setMode("auto");
-      }
-      sys += effMode === "assist" ? ASSIST_BLOCK : AUTO_BLOCK;
-      let dg = "";
-      try {
-        dg = notes && notes.digest ? await notes.digest({}) : "";
-      } catch {
-        /* 笔记可选，取不到不影响 */
-      }
-      ensureStillOwned();
+      sys += runConfig.mode === "assist" ? ASSIST_BLOCK : AUTO_BLOCK;
       if (dg) {
         sys += `\n\n${dg}`;
       }
@@ -1464,16 +1561,18 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         {
           systemPrompt: sys,
           confirmMode,
-          assist: effMode === "assist",
+          assist: runConfig.mode === "assist",
           maxRounds: 80,
           maxPerTool: 40,
-          workspaceRoot: workspaceDir || null,
+          workspaceRoot: runConfig.workspace,
           win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
         },
-        () => {
+        thread => {
           try {
             ensureStillOwned();
-            return true;
+            return pendingConfigIntentRef.current === null &&
+              sameThreadConfigIntent(configIntentRef, sendConfigIntent) &&
+              sameThreadRunConfig(thread, runConfig);
           } catch {
             return false;
           }
@@ -1572,6 +1671,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
 
   // 选模式：按会话持久化（一选定整条会话沿用，除非用户再点切换）。在 fresh 线程上选时先 ensureThread 落地线程。
   async function chooseMode(m) {
+    const configIntent = beginThreadConfigIntent(configIntentRef, pendingConfigIntentRef);
     try {
       const { id: tid, selection } = await ensureThread();
       const selectionReservation = reservationForSelection(reservationRef.current, selection);
@@ -1584,24 +1684,27 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       )) {
         throw new Error("当前会话的窗口预留已失效，未修改执行模式。");
       }
-      if (conversations.setThreadMode) {
-        await conversations.setThreadMode(
-          tid,
-          m,
-          () => ownsSelectedThreadForIntent(
+      await setOwnedThreadMode(
+        conversations,
+        tid,
+        m,
+        () => sameThreadConfigIntent(configIntentRef, configIntent) &&
+          ownsSelectedThreadForIntent(
             session,
             selectionRef,
             selectionIntentRef,
             selection,
             selectionReservation,
           ),
-        );
-      }
-      if (sameSelectionIntent(selectionRef, selectionIntentRef, selection)) {
+      );
+      if (sameThreadConfigIntent(configIntentRef, configIntent) &&
+          sameSelectionIntent(selectionRef, selectionIntentRef, selection)) {
         setMode(m);
       }
     } catch (e) {
       setError(e?.message || String(e));
+    } finally {
+      finishThreadConfigIntent(pendingConfigIntentRef, configIntent);
     }
   }
   // 顶部 chip：手动切换模式（全自动 ⇄ AI辅助），随时可改。
