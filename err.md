@@ -93,3 +93,12 @@
 - 修复：实现 checkpoint `8ef8ce328dc587e048ba75c2ee9e979b47af38de`、tree `70735af06e995f44f5199fb2dd43453474cb556a` 为非当前历史删除创建最新 claim；该 claim 只临时认领并释放删除目标，当前 thread 的旧 reservation 仍可精确续约自身。
 - 验证：在该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.5kb`、13/13 Node 自测文件、reservation 52 项断言、ConversationStore 32/32、multi-window routing 动态合同、branding 22 文件和 `git diff --check` 全部通过。
 - 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库没有 PR workflow，以上仅为本地门禁证据。
+
+## 2026-08-14：附属删除后当前 thread 不能重新认领旧 claim
+
+- 取证时间：`2026-08-14 04:32:02 +08:00`。
+- 现象：当前 thread A 持有 claim 1；删除非当前历史 B 发布并释放 claim 2 后，A 的 claim 1 仍可精确续约，但旧实现删除 A 时再次调用 `acquireThread(A, claim 1)`，被 owner+generation 的最高 claim 2 拒绝并误报其它窗口占用。
+- 红测：组合动态用例先以 claim 2 删除 B，再尝试以既有 claim 1 删除 A；旧实现稳定抛出“该会话已在另一个浏览器窗口打开”，证明问题不在 reservation 续约而在重复认领。
+- 修复：实现 checkpoint `4074d00ceb4606e3d22ae1294ba53cb8302cdf68`、tree `47b165892ee4db71c3e61801efd32fd6359c1d09` 为内部删除 helper 增加 `alreadyOwned` 路径。当前删除以 `renewThread()` 验证精确 reservation，非当前删除继续以最新 claim 调用 `acquireThread()`；成功后均释放目标，当前删除失败仍保留既有 reservation。
+- 验证：该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.6kb`、13/13 Node 自测文件、reservation 52/52、ConversationStore 32/32、multi-window routing 动态合同、branding 22 文件和 `git diff --check` 全部通过。
+- 边界：仅修改 `AgentPanel.jsx` 与 `selftest-multi-window-routing.mjs`；未修改 reservation 公共 API、`AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁，未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。
