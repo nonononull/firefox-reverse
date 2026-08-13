@@ -253,12 +253,74 @@ const _CC = typeof Components !== "undefined" ? Components.classes : typeof Cc !
 const _CI = typeof Components !== "undefined" ? Components.interfaces : typeof Ci !== "undefined" ? Ci : null;
 const _SVC = typeof Services !== "undefined" ? Services : null;
 
+function hasThreadReservation(session) {
+  return !!session &&
+    typeof session.acquireThread === "function" &&
+    typeof session.renewThread === "function" &&
+    typeof session.releaseThread === "function";
+}
+
+function sameSelection(current, expected) {
+  return !!current && !!expected &&
+    current.id === expected.id && current.revision === expected.revision;
+}
+
+function captureSelectionIntent(selectionRef, intentRef) {
+  return { ...selectionRef.current, intent: intentRef.current };
+}
+
+function beginSelectionIntent(selectionRef, intentRef, pendingRef) {
+  intentRef.current += 1;
+  const selection = captureSelectionIntent(selectionRef, intentRef);
+  pendingRef.current = selection.intent;
+  return selection;
+}
+
+function finishSelectionIntent(pendingRef, expected) {
+  if (pendingRef.current === expected.intent) {
+    pendingRef.current = null;
+  }
+}
+
+function sameSelectionIntent(selectionRef, intentRef, expected) {
+  return intentRef.current === expected.intent &&
+    sameSelection(selectionRef.current, expected);
+}
+
+function releaseOwnedThread(session, threadId, owner) {
+  try {
+    if (session && typeof session.releaseThread === "function" && threadId) {
+      session.releaseThread(threadId, owner);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function keepOwnedThreadForSelection(
+  selectionRef,
+  intentRef,
+  expected,
+  thread,
+  session,
+  owner,
+  releaseWhenStale = false,
+) {
+  if (sameSelectionIntent(selectionRef, intentRef, expected)) {
+    return true;
+  }
+  if (releaseWhenStale && thread && selectionRef.current.id !== thread.id) {
+    releaseOwnedThread(session, thread.id, owner);
+  }
+  return false;
+}
+
 async function createOwnedThread(conversations, session, owner) {
+  if (!hasThreadReservation(session)) {
+    throw new Error("多窗口会话预留 API 不完整，已拒绝创建未受保护的会话。");
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const thread = await conversations.createThread();
-    if (!session || !session.acquireThread) {
-      return thread;
-    }
     if (session.acquireThread([thread.id], owner) === thread.id) {
       return thread;
     }
@@ -267,11 +329,9 @@ async function createOwnedThread(conversations, session, owner) {
 }
 
 function renewOwnedThread(session, threadId, owner, onLost) {
-  if (!session.renewThread) {
-    return true;
-  }
   try {
-    if (session.renewThread(threadId, owner) === true) {
+    if (session && typeof session.renewThread === "function" &&
+        session.renewThread(threadId, owner) === true) {
       return true;
     }
   } catch {
@@ -279,6 +339,18 @@ function renewOwnedThread(session, threadId, owner, onLost) {
   }
   onLost();
   return false;
+}
+
+function ownsSelectedThread(session, selectionRef, expected, owner) {
+  if (!sameSelection(selectionRef.current, expected)) {
+    return false;
+  }
+  return renewOwnedThread(session, expected.id, owner, () => {});
+}
+
+function ownsSelectedThreadForIntent(session, selectionRef, intentRef, expected, owner) {
+  return sameSelectionIntent(selectionRef, intentRef, expected) &&
+    ownsSelectedThread(session, selectionRef, expected, owner);
 }
 
 export default function AgentPanel({ buildClient, conversations, store, router, runAgentTurn, session, isVisionModel, workspace, notes, toolNames = [], onOpenEnvironment, onOpenSettings, hidden = false }) {
@@ -306,6 +378,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   const [extRunning, setExtRunning] = useState(null); // 外部(MCP)驱动、本面板没在显示的会话（横幅提示用）
   const mountedRef = useRef(false);
   const selectionRef = useRef({ id: null, revision: 0 });
+  const selectionIntentRef = useRef(0);
+  const pendingSelectionIntentRef = useRef(null);
 
   function selectCurrentThread(id) {
     selectionRef.current = { id, revision: selectionRef.current.revision + 1 };
@@ -356,46 +430,97 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   // 初始化：载入线程列表，打开最近一个（无则建新）
   useEffect(() => {
     let cancelled = false;
+    let pendingOwnedId = null;
+    let createdOwnedThread = false;
+    const initialSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
     (async () => {
       try {
         if (!conversations) {
           return;
         }
+        if (!hasThreadReservation(session)) {
+          throw new Error("多窗口会话预留 API 不完整，已拒绝加载未受保护的会话。");
+        }
         const list = await refreshThreads();
-        if (cancelled) {
+        if (cancelled || !sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
           return;
         }
         // 多窗口隔离：认领"最近且没被别的窗口占用"的线程续看；被占（另一窗口正用）或无历史 → 新建空线程给本窗口，
         // 确保两个浏览器窗口绝不绑同一条线程（否则对话/进度/工作目录全串）。
         const latest = list.length > 0 ? list[0].id : null;
-        const acquired = (latest && session && session.acquireThread) ? session.acquireThread([latest], ownerRef.current) : latest;
+        const acquired = latest ? session.acquireThread([latest], ownerRef.current) : null;
         let id = acquired === latest ? latest : null;
+        pendingOwnedId = id;
         let t = id ? await conversations.getThread(id) : null;
+        if (cancelled || !sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
+          if (id) {
+            keepOwnedThreadForSelection(
+              selectionRef,
+              selectionIntentRef,
+              initialSelection,
+              { id },
+              session,
+              ownerRef.current,
+            );
+            pendingOwnedId = null;
+          }
+          return;
+        }
         if (!t) {
-          if (id && session && session.releaseThread) {
-            session.releaseThread(id, ownerRef.current);
+          if (id) {
+            releaseOwnedThread(session, id, ownerRef.current);
+            pendingOwnedId = null;
           }
           t = await createOwnedThread(conversations, session, ownerRef.current);
+          pendingOwnedId = t.id;
+          createdOwnedThread = true;
         }
-        if (!cancelled && t) {
+        if (cancelled) {
+          if (createdOwnedThread || !mountedRef.current) {
+            releaseOwnedThread(session, t.id, ownerRef.current);
+          }
+          pendingOwnedId = null;
+          return;
+        }
+        const keepThread = !cancelled && t && keepOwnedThreadForSelection(
+          selectionRef,
+          selectionIntentRef,
+          initialSelection,
+          t,
+          session,
+          ownerRef.current,
+          createdOwnedThread,
+        );
+        pendingOwnedId = null;
+        if (keepThread) {
           selectCurrentThread(t.id);
           setMessages(t.messages || []);
           bindWorkspace(effectiveWorkspace(t));
           setMode((t && t.mode) || null);
           refreshThreads();
-        } else if (cancelled && t && session && session.releaseThread) {
-          session.releaseThread(t.id, ownerRef.current);
         }
       } catch (e) {
-        if (!cancelled) {
+        if (pendingOwnedId) {
+          if (createdOwnedThread || !mountedRef.current) {
+            releaseOwnedThread(session, pendingOwnedId, ownerRef.current);
+          }
+          pendingOwnedId = null;
+        }
+        if (!cancelled && sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
           setError("加载历史失败：" + (e?.message || e));
         }
       }
     })();
     return () => {
       cancelled = true;
+      if (pendingOwnedId) {
+        if (createdOwnedThread || !mountedRef.current) {
+          releaseOwnedThread(session, pendingOwnedId, ownerRef.current);
+        }
+        pendingOwnedId = null;
+      }
     };
-  }, [conversations, refreshThreads]);
+  }, [conversations, refreshThreads, session]);
 
   // 续看：mount/切线程时若该线程仍在后台跑，置 busy → 启动下面的轮询续看（引擎从未中断）。
   useEffect(() => {
@@ -414,10 +539,15 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       return undefined;
     }
     const owner = ownerRef.current;
+    const leaseSelection = { id: currentId, revision: selectionRef.current.revision };
     let heartbeat = null;
     let recovering = false;
     const recover = async () => {
-      if (recovering || selectionRef.current.id !== currentId) {
+      if (
+        recovering ||
+        pendingSelectionIntentRef.current !== null ||
+        !sameSelection(selectionRef.current, leaseSelection)
+      ) {
         return;
       }
       recovering = true;
@@ -425,8 +555,17 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         clearInterval(heartbeat);
         heartbeat = null;
       }
+      const recoveryOperation = beginSelectionIntent(
+        selectionRef,
+        selectionIntentRef,
+        pendingSelectionIntentRef,
+      );
       const recoveryRevision = selectionRef.current.revision + 1;
       selectionRef.current = { id: null, revision: recoveryRevision };
+      const recoverySelection = {
+        ...selectionRef.current,
+        intent: recoveryOperation.intent,
+      };
       setCurrentId(current => current === currentId ? null : current);
       setMessages([]);
       setBusy(false);
@@ -440,10 +579,16 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         const thread = await createOwnedThread(conversations, session, owner);
         if (
           !mountedRef.current ||
-          selectionRef.current.revision !== recoveryRevision ||
-          selectionRef.current.id !== null
+          !keepOwnedThreadForSelection(
+            selectionRef,
+            selectionIntentRef,
+            recoverySelection,
+            thread,
+            session,
+            owner,
+            true,
+          )
         ) {
-          session.releaseThread && session.releaseThread(thread.id, owner);
           return;
         }
         selectCurrentThread(thread.id);
@@ -452,12 +597,21 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         setError("原会话已由另一个窗口接管，已为当前窗口创建独立会话。");
         refreshThreads();
       } catch (e) {
-        if (mountedRef.current && selectionRef.current.revision === recoveryRevision) {
+        if (mountedRef.current && sameSelectionIntent(
+          selectionRef,
+          selectionIntentRef,
+          recoverySelection,
+        )) {
           setError("当前会话的窗口预留已失效，且无法创建独立会话：" + (e?.message || e));
         }
+      } finally {
+        finishSelectionIntent(pendingSelectionIntentRef, recoverySelection);
       }
     };
     const renew = () => {
+      if (!sameSelection(selectionRef.current, leaseSelection)) {
+        return;
+      }
       renewOwnedThread(session, currentId, owner, () => void recover());
     };
     renew(); // 立即续一次（覆盖 acquire 与首个心跳之间的空窗）
@@ -465,10 +619,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       heartbeat = setInterval(renew, 3000);
     }
     const release = () => {
-      try {
-        session.releaseThread && session.releaseThread(currentId, owner);
-      } catch {
-        /* ignore */
+      if (
+        !mountedRef.current ||
+        selectionRef.current.id !== currentId ||
+        sameSelection(selectionRef.current, leaseSelection)
+      ) {
+        releaseOwnedThread(session, currentId, owner);
       }
     };
     let win = null;
@@ -501,11 +657,12 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     if (!session || !currentId || !busy) {
       return undefined;
     }
-    let stopped = false;
+    let disposed = false;
+    const effectSelection = { id: currentId, revision: selectionRef.current.revision };
     let timer = null;
     let lastCkpt = 0; // 已处理到的 checkpoint 序号（本轮起始为 0）
-    const tick = () => {
-      if (stopped) {
+    const tick = async () => {
+      if (disposed || !sameSelection(selectionRef.current, effectSelection)) {
         return;
       }
       const snap = session.getState(currentId);
@@ -516,7 +673,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
           conversations
             .getThread(currentId)
             .then(t => {
-              if (t) setMessages(t.messages);
+              if (!disposed && sameSelection(selectionRef.current, effectSelection) && t) {
+                setMessages(t.messages);
+              }
             })
             .catch(() => {});
         }
@@ -536,16 +695,21 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         }
       } else if (snap && snap.settled) {
         // 回合结束：引擎已把最终/中断消息落盘 → 重载历史 + 收尾。
-        stopped = true;
+        let t = null;
+        try {
+          t = await conversations.getThread(currentId);
+        } catch {
+          /* 最终历史读取失败不阻塞状态收口 */
+        }
+        if (disposed || !sameSelection(selectionRef.current, effectSelection)) {
+          return;
+        }
         if (snap.error) {
           setError(snap.error);
         }
-        conversations
-          .getThread(currentId)
-          .then(t => {
-            if (t) setMessages(t.messages);
-          })
-          .catch(() => {});
+        if (t) {
+          setMessages(t.messages);
+        }
         setLiveSteps([]);
         stepsRef.current = [];
         curTextRef.current = -1;
@@ -556,11 +720,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         refreshThreads();
         return;
       }
-      timer = setTimeout(tick, 80); // ~12 拍/秒：流式够顺、开销低
+      timer = setTimeout(() => void tick(), 80); // ~12 拍/秒：流式够顺、开销低
     };
-    timer = setTimeout(tick, 0);
+    timer = setTimeout(() => void tick(), 0);
     return () => {
-      stopped = true;
+      disposed = true;
       if (timer) {
         clearTimeout(timer);
       }
@@ -581,16 +745,26 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     let lastRunKey = "";
     const tick = async () => {
       try {
+        if (stopped || selectionRef.current.id !== currentId) {
+          return;
+        }
+        const observedSelection = { id: currentId, revision: selectionRef.current.revision };
         const running = session.listRunning() || [];
         // ① 自愈：停在一条在跑的会话却没 busy → 补绑目录 + 补开流式
         if (currentId && !busy && running.some(r => r.id === currentId)) {
           try {
             const t = await conversations.getThread(currentId);
+            if (stopped || !sameSelection(selectionRef.current, observedSelection)) {
+              return;
+            }
             if (t) {
               bindWorkspace(effectiveWorkspace(t));
               setMode((t && t.mode) || null);
             }
           } catch (_e) { /* ignore */ }
+          if (stopped || !sameSelection(selectionRef.current, observedSelection)) {
+            return;
+          }
           setBusy(true); // 启「续看」流式轮询 useEffect（deps 含 busy）
         }
         const others = running.filter(r => r && r.id && r.id !== currentId);
@@ -600,6 +774,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
           if (others.length) {
             refreshThreads(); // 仅当「别的在跑会话集合」变了才刷列表，避免每 1.5s 无谓 setState
           }
+        }
+        if (stopped || !sameSelection(selectionRef.current, observedSelection)) {
+          return;
         }
         if (!others.length) {
           setExtRunning(null);
@@ -636,32 +813,77 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }, [messages, busy, liveSteps]);
 
   async function ensureThread() {
+    if (!mountedRef.current) {
+      throw new Error("Agent 面板已关闭，已停止会话操作。");
+    }
+    if (pendingSelectionIntentRef.current !== null) {
+      throw new Error("正在切换会话，请稍后重试。");
+    }
+    let operationSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
+    let ownsSelectionIntent = false;
     let reservationLost = false;
-    if (currentId) {
-      let ownsCurrent = true;
-      if (session) {
-        renewOwnedThread(session, currentId, ownerRef.current, () => {
-          ownsCurrent = false;
-        });
+    try {
+      if (operationSelection.id && ownsSelectedThreadForIntent(
+        session,
+        selectionRef,
+        selectionIntentRef,
+        operationSelection,
+        ownerRef.current,
+      )) {
+        return { id: operationSelection.id, reservationLost: false, selection: operationSelection };
       }
-      if (ownsCurrent) {
-        return { id: currentId, reservationLost: false };
+      if (!sameSelectionIntent(selectionRef, selectionIntentRef, operationSelection)) {
+        throw new Error("会话选择意图已变化，已停止旧操作。");
       }
-      selectCurrentThread(null);
-      reservationLost = true;
+      operationSelection = beginSelectionIntent(
+        selectionRef,
+        selectionIntentRef,
+        pendingSelectionIntentRef,
+      );
+      ownsSelectionIntent = true;
+      if (operationSelection.id) {
+        selectCurrentThread(null);
+        operationSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
+        reservationLost = true;
+      }
+
+      const t = await createOwnedThread(conversations, session, ownerRef.current);
+      if (!mountedRef.current) {
+        releaseOwnedThread(session, t.id, ownerRef.current);
+        throw new Error("Agent 面板已关闭，已释放迟到的新会话。");
+      }
+      if (!keepOwnedThreadForSelection(
+        selectionRef,
+        selectionIntentRef,
+        operationSelection,
+        t,
+        session,
+        ownerRef.current,
+        true,
+      )) {
+        throw new Error("会话选择已变化，已释放迟到的新会话。");
+      }
+      selectCurrentThread(t.id);
+      const selected = captureSelectionIntent(selectionRef, selectionIntentRef);
+      if (reservationLost) {
+        setMessages([]);
+        setBusy(false);
+        resetSteps();
+        setActiveTool(null);
+        setPendingConfirm(null);
+      }
+      bindWorkspace(effectiveWorkspace(t));
+      setMode((t && t.mode) || null);
+      return { id: t.id, reservationLost, selection: selected };
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e));
+      error.selection = operationSelection;
+      throw error;
+    } finally {
+      if (ownsSelectionIntent) {
+        finishSelectionIntent(pendingSelectionIntentRef, operationSelection);
+      }
     }
-    const t = await createOwnedThread(conversations, session, ownerRef.current);
-    selectCurrentThread(t.id);
-    if (reservationLost) {
-      setMessages([]);
-      setBusy(false);
-      resetSteps();
-      setActiveTool(null);
-      setPendingConfirm(null);
-    }
-    bindWorkspace(effectiveWorkspace(t));
-    setMode((t && t.mode) || null);
-    return { id: t.id, reservationLost };
   }
 
   // ---- 工作目录：绑定到当前会话；**新会话默认不绑定目录**（为空，需用户手动「打开目录」）----
@@ -849,6 +1071,14 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     if (!text || busy) {
       return;
     }
+    if (!hasThreadReservation(session) || !router) {
+      setError("多窗口会话预留或 Agent 运行接口不可用，已拒绝发送。");
+      return;
+    }
+    if (pendingSelectionIntentRef.current !== null) {
+      setError("正在切换会话，请稍后重试。");
+      return;
+    }
     setError(null);
     const userMsg = { role: "user", content: text };
     setMessages([...messages, userMsg]); // 乐观显示；发给模型的权威历史下面从持久化 store 读
@@ -856,24 +1086,42 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     resetSteps();
     atBottomRef.current = true; // 发送即贴底，跟随本次回复
     autoApproveRef.current = false;
+    let sendSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
+    let runStarted = false;
     try {
       const ensured = await ensureThread();
+      sendSelection = ensured.selection;
       if (ensured.reservationLost) {
         setInput(current => current || text);
         throw new Error("原会话已由另一个窗口接管，已为当前窗口创建独立会话，请重新发送。");
       }
       const tid = ensured.id;
-      await conversations.appendMessage(tid, userMsg);
+      const ensureStillOwned = () => {
+        if (!mountedRef.current ||
+            !ownsSelectedThreadForIntent(
+              session,
+              selectionRef,
+              selectionIntentRef,
+              sendSelection,
+              ownerRef.current,
+            )) {
+          setInput(current => current || text);
+          throw new Error("当前会话的窗口预留已失效，已停止发送且未启动任务，请重新发送。");
+        }
+      };
+      ensureStillOwned();
       // 发给模型的会话历史从**持久化 store** 读（不靠 React messages state——settle 重载有竞态、
       // 切栏重挂载也会让它陈旧 → 之前"同一会话里回一轮就失忆"的根因）。store 是权威、含全部已落盘轮次。
       let convo = [...messages, userMsg];
+      let t0 = null;
       try {
-        const t0 = await conversations.getThread(tid);
-        if (t0 && Array.isArray(t0.messages) && t0.messages.length) {
-          convo = t0.messages;
-        }
+        t0 = await conversations.getThread(tid);
       } catch {
         /* 取不到就用乐观值 */
+      }
+      ensureStillOwned();
+      if (t0 && Array.isArray(t0.messages) && t0.messages.length) {
+        convo = [...t0.messages, userMsg];
       }
       // 系统提示：工作目录（动态）+ 当前站点历史笔记摘要（只读、不累积）。
       let sys = workspaceDir
@@ -887,7 +1135,6 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       // 而此刻 setCurrentId 还没 flush（异步），会再建一条空线程并切走 currentId（run 却跑在原线程上）。
       const effMode = mode || "auto";
       if (mode == null) {
-        setMode("auto");
         try {
           if (conversations.setThreadMode) {
             await conversations.setThreadMode(tid, "auto");
@@ -895,44 +1142,46 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         } catch {
           /* 持久化失败不影响本会话内生效 */
         }
+        ensureStillOwned();
+        setMode("auto");
       }
       sys += effMode === "assist" ? ASSIST_BLOCK : AUTO_BLOCK;
+      let dg = "";
       try {
-        const dg = notes && notes.digest ? await notes.digest({}) : "";
-        if (dg) {
-          sys += `\n\n${dg}`;
-        }
+        dg = notes && notes.digest ? await notes.digest({}) : "";
       } catch {
         /* 笔记可选，取不到不影响 */
       }
-      if (session && router) {
-        const confirmMode = !!(store && store.getConfirmTools && store.getConfirmTools());
-        setBusy(true); // → 触发轮询 useEffect 流式刷 UI
-        // 引擎在常驻模块跑：切侧栏面板重载也不中断；UI 由轮询驱动(见上面 useEffect)，
-        // done/error 由引擎自己落盘，故这里**不 await、不 finalize**。
-        // assist=AI辅助逐阶段：引擎不跨回合自动续（每个 turn 结束交回用户等其选方向）。
-        session.run(tid, { systemPrompt: sys, convo, confirmMode, assist: effMode === "assist", maxRounds: 80, maxPerTool: 40,
-          // 工作目录随会话注入到每条工具调用的 ctx，WorkspaceBackend 优先使用 ctx.workspaceRoot，
-          // 实现多窗口/多会话并发时各自操作各自的目录、互不干扰。
-          workspaceRoot: workspaceDir || null,
-          // 把**本侧栏所在的 chrome 窗口**注入 ctx.win——所有定位标签页的工具(page_eval/导航/点击/
-          // webapi/jsvmp trace/signer_trace/whitebox)优先打**本窗口**的当前 tab，而非"全局聚焦窗口"，
-          // 两个浏览器窗口并发跑各自的 Agent 时互不打错 tab。topChromeWindow 不随焦点变。
-          win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
-        });
-      } else {
-        // 无 session 兜底（不跨重载）：直接 chat。
-        setBusy(true);
-        const content = (await buildClient().chat([{ role: "system", content: sys }, ...convo])).content;
-        const am = { role: "assistant", content };
-        setMessages([...convo, am]);
-        await conversations.appendMessage(tid, am);
-        setBusy(false);
-        refreshThreads();
+      ensureStillOwned();
+      if (dg) {
+        sys += `\n\n${dg}`;
       }
+      await conversations.appendMessage(tid, userMsg);
+      ensureStillOwned();
+      const confirmMode = !!(store && store.getConfirmTools && store.getConfirmTools());
+      setBusy(true); // → 触发轮询 useEffect 流式刷 UI
+      // 引擎在常驻模块跑：切侧栏面板重载也不中断；UI 由轮询驱动(见上面 useEffect)，
+      // done/error 由引擎自己落盘，故这里**不 await、不 finalize**。
+      // assist=AI辅助逐阶段：引擎不跨回合自动续（每个 turn 结束交回用户等其选方向）。
+      session.run(tid, { systemPrompt: sys, convo, confirmMode, assist: effMode === "assist", maxRounds: 80, maxPerTool: 40,
+        // 工作目录随会话注入到每条工具调用的 ctx，WorkspaceBackend 优先使用 ctx.workspaceRoot，
+        // 实现多窗口/多会话并发时各自操作各自的目录、互不干扰。
+        workspaceRoot: workspaceDir || null,
+        // 把**本侧栏所在的 chrome 窗口**注入 ctx.win——所有定位标签页的工具(page_eval/导航/点击/
+        // webapi/jsvmp trace/signer_trace/whitebox)优先打**本窗口**的当前 tab，而非"全局聚焦窗口"，
+        // 两个浏览器窗口并发跑各自的 Agent 时互不打错 tab。topChromeWindow 不随焦点变。
+        win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
+      });
+      runStarted = true;
     } catch (e) {
-      setError((e?.message || String(e)) + (e?.body ? "\n— " + String(e.body).slice(0, 600) : ""));
-      setBusy(false);
+      if (!runStarted) {
+        setInput(current => current || text);
+      }
+      const errorSelection = e && e.selection ? e.selection : sendSelection;
+      if (sameSelectionIntent(selectionRef, selectionIntentRef, errorSelection)) {
+        setError((e?.message || String(e)) + (e?.body ? "\n— " + String(e.body).slice(0, 600) : ""));
+        setBusy(false);
+      }
     }
   }
 
@@ -950,8 +1199,28 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }
 
   async function newChat() {
+    const expectedSelection = beginSelectionIntent(
+      selectionRef,
+      selectionIntentRef,
+      pendingSelectionIntentRef,
+    );
     try {
       const t = await createOwnedThread(conversations, session, ownerRef.current);
+      if (!mountedRef.current) {
+        releaseOwnedThread(session, t.id, ownerRef.current);
+        return;
+      }
+      if (!keepOwnedThreadForSelection(
+        selectionRef,
+        selectionIntentRef,
+        expectedSelection,
+        t,
+        session,
+        ownerRef.current,
+        true,
+      )) {
+        return;
+      }
       selectCurrentThread(t.id);
       setMessages([]);
       setError(null);
@@ -966,17 +1235,43 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       setPendingConfirm(null);
       refreshThreads();
     } catch (e) {
-      setError(e?.message || String(e));
+      if (mountedRef.current && sameSelectionIntent(
+        selectionRef,
+        selectionIntentRef,
+        expectedSelection,
+      )) {
+        setError(e?.message || String(e));
+      }
+    } finally {
+      finishSelectionIntent(pendingSelectionIntentRef, expectedSelection);
     }
   }
 
   // 选模式：按会话持久化（一选定整条会话沿用，除非用户再点切换）。在 fresh 线程上选时先 ensureThread 落地线程。
   async function chooseMode(m) {
-    setMode(m);
     try {
-      const { id: tid } = await ensureThread();
+      const { id: tid, selection } = await ensureThread();
+      if (!ownsSelectedThreadForIntent(
+        session,
+        selectionRef,
+        selectionIntentRef,
+        selection,
+        ownerRef.current,
+      )) {
+        throw new Error("当前会话的窗口预留已失效，未修改执行模式。");
+      }
+      setMode(m);
       if (conversations.setThreadMode) {
         await conversations.setThreadMode(tid, m);
+        if (!ownsSelectedThreadForIntent(
+          session,
+          selectionRef,
+          selectionIntentRef,
+          selection,
+          ownerRef.current,
+        )) {
+          throw new Error("当前会话的窗口预留已失效，请在当前会话重新选择执行模式。");
+        }
       }
     } catch (e) {
       setError(e?.message || String(e));
@@ -988,18 +1283,70 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   }
 
   async function openThread(id) {
-    // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
-    if (id !== currentId && session && session.acquireThread) {
-      const got = session.acquireThread([id], ownerRef.current);
-      if (got !== id) {
-        setError("该会话已在另一个浏览器窗口打开，不能在此窗口同时打开（避免对话串）。");
+    const expectedSelection = beginSelectionIntent(
+      selectionRef,
+      selectionIntentRef,
+      pendingSelectionIntentRef,
+    );
+    try {
+      if (!hasThreadReservation(session)) {
+        setError("多窗口会话预留 API 不完整，已拒绝打开历史会话。");
         setShowHistory(false);
         return;
       }
-    }
-    const t = await conversations.getThread(id);
-    if (t) {
-      selectCurrentThread(t.id);
+      // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
+      const acquiredTarget = id !== expectedSelection.id;
+      if (acquiredTarget) {
+        const got = session.acquireThread([id], ownerRef.current);
+        if (got !== id) {
+          setError("该会话已在另一个浏览器窗口打开，不能在此窗口同时打开（避免对话串）。");
+          setShowHistory(false);
+          return;
+        }
+      } else if (!ownsSelectedThreadForIntent(
+        session,
+        selectionRef,
+        selectionIntentRef,
+        expectedSelection,
+        ownerRef.current,
+      )) {
+        setError("当前会话的窗口预留已失效，无法重新打开该会话。");
+        setShowHistory(false);
+        return;
+      }
+      const t = await conversations.getThread(id);
+      if (!mountedRef.current) {
+        if (acquiredTarget) {
+          releaseOwnedThread(session, id, ownerRef.current);
+        }
+        return;
+      }
+      if (!keepOwnedThreadForSelection(
+        selectionRef,
+        selectionIntentRef,
+        expectedSelection,
+        t || (acquiredTarget ? { id } : null),
+        session,
+        ownerRef.current,
+      )) {
+        return;
+      }
+      if (!t) {
+        if (acquiredTarget) {
+          releaseOwnedThread(session, id, ownerRef.current);
+        }
+        setError("历史会话不存在或已被删除。");
+        setShowHistory(false);
+        return;
+      }
+      if (!renewOwnedThread(session, id, ownerRef.current, () => {})) {
+        setError("该会话的窗口预留已失效，无法打开。");
+        setShowHistory(false);
+        return;
+      }
+      if (acquiredTarget) {
+        selectCurrentThread(t.id);
+      }
       setMessages(t.messages);
       setError(null);
       bindWorkspace(effectiveWorkspace(t));
@@ -1010,8 +1357,19 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       setActiveTool(null);
       setPendingConfirm(null);
       setBusy(!!(session && session.isRunning && session.isRunning(t.id)));
+      setShowHistory(false);
+    } catch (e) {
+      if (mountedRef.current && sameSelectionIntent(
+        selectionRef,
+        selectionIntentRef,
+        expectedSelection,
+      )) {
+        setError("打开历史会话失败：" + (e?.message || e));
+        setShowHistory(false);
+      }
+    } finally {
+      finishSelectionIntent(pendingSelectionIntentRef, expectedSelection);
     }
-    setShowHistory(false);
   }
 
   async function deleteThread(id, ev) {
