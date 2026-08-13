@@ -40,3 +40,12 @@
 - 处理：Windows 正式门禁使用 `build.md` 的 PowerShell 固定列表；它已在同一工作树完成 bundle、13/13 自测文件和 branding 检查。
 - 清理：两次临时 runner 均由 `finally` 删除，工作树没有遗留临时脚本。
 - 禁止：不得为让 WSL 通过而在同一工作树重装 Linux `node_modules`，这会破坏 Windows 验证依赖；不得把入口兼容错误记为产品断言失败。
+
+## 2026-08-13：新 thread 在持久化与认领之间可被其它窗口抢占
+
+- 取证时间：`2026-08-13 19:50:40 +08:00`。
+- 现象：exact-head reviewer 在 `ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e` 上返回 `REQUEST_CHANGES`。`ConversationStore.createThread()` 先把 thread 放入共享内存列表，创建窗口随后才调用 `AgentSession.acquireThread()`；另一窗口可在两步之间抢先认领，而创建窗口仍会忽略失败并绑定同一 thread。心跳返回 `false` 时也被忽略。
+- 红测：扩展 `selftest-multi-window-routing.mjs` 后，旧实现因缺少统一有界认领入口而失败；测试同时覆盖首个 thread 被抢后第二个成功、连续三次失败后停止、不删除被抢 thread，以及 `renewThread()` 返回 `false`/抛错后的失权通知。
+- 修复：`AgentPanel.jsx` 的初始化、`ensureThread()` 和 `newChat()` 统一使用最多三次的 `createOwnedThread()`；只有认领返回精确目标 ID 才绑定。心跳失权后先解除旧选择，再创建独立 thread，并用选择代际防止迟到恢复覆盖用户的新选择；发送前同步发现失权时保留输入并要求重新发送。
+- 验证：实现提交 `b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1`、tree `549fb36b1b27f52f6002951484c76b1a076a3625` 上，`npm ci`、sidebar bundle `211.4kb`、13/13 Node 自测文件、thread reservation 22 项断言、branding 22 文件和 `git diff --check` 均通过。
+- 边界：未修改 `AgentSession.sys.mjs`、底层 owner token/TTL/raw-tool 锁、浏览器安装包、Reverse Lab、Pingbo、Bet365、账号或 live；仓库无 PR workflow，本地门禁不能写成 CI 通过。
