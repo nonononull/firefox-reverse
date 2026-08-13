@@ -1,0 +1,22 @@
+schema_version: agos.runtime-workflow.v1
+task_id: "issue-1-multi-window-thread-routing"
+project_root: "D:\\Android_source\\firefox-reverse"
+task_authority_kind: project-local
+task_authority_status: ready
+task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
+task_authority_source_sha256: "sha256:6ba29fde0e1e2100da69699f0353535481a5480b08e4bd5d5782147854d0d6ff"
+task_authority_bootstrap_paths: "docs/plans/sessions/issue-1-multi-window-thread-routing.md,docs/plans/sessions/issue-1-multi-window-thread-routing.owner-scope.yml"
+scope_hash: "sha256:4147bdeba7cc8a5c2d3c06e9178b1804ecf81c85917490d0c8b1607d2b0d5500"
+owner_scope_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.owner-scope.yml"
+owner_scope_hash: "sha256:4147bdeba7cc8a5c2d3c06e9178b1804ecf81c85917490d0c8b1607d2b0d5500"
+execution_profile: project-native-v1
+session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
+approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
+selected_business_path: "github-issue-pr-merge"
+snapshot_ref: "git:3196d7f0ac3c36210baef484689c6d8cb5d5d077"
+task_scope_boundary: project-local-owner-scope
+task_current_state: ready
+mutation_admission_status: project-local-owner-scope-required
+stop_gates:
+  - session-plan-and-owner-scope-must-match-committed-snapshot
+  - central-task-backlog-must-not-be-consumed-or-mutated
