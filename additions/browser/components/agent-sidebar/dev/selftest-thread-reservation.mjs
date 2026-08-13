@@ -39,6 +39,7 @@ function sourceMethod(name, dependencies) {
 function makeStore() {
   const sessions = new Map();
   const ownerGenerations = new Map();
+  const ownerClaims = new Map();
   const getOrInit = id => {
     let s = sessions.get(id);
     if (!s) {
@@ -49,15 +50,18 @@ function makeStore() {
   };
   const beginThreadReservation = sourceMethod("beginThreadReservation", {
     reservationGenerations: ownerGenerations,
+    reservationClaims: ownerClaims,
   });
   const acquireThread = sourceMethod("acquireThread", {
     reservationGenerations: ownerGenerations,
+    reservationClaims: ownerClaims,
     getOrInit,
     RESERVE_TTL_MS,
   });
   const renewThread = sourceMethod("renewThread", {
     sessions,
     reservationGenerations: ownerGenerations,
+    reservationClaims: ownerClaims,
   });
   const releaseThread = sourceMethod("releaseThread", {
     sessions,
@@ -120,7 +124,20 @@ check("旧 claim 不得迟到 release", st.releaseThread("T", "winA", genA, 1), 
 check("旧 claim 释放后 reservation 仍有效", st.acquireThread(["T"], "winB", genB, 3), null);
 check("当前 claim 仍可 renew", st.renewThread("T", "winA", genA, 2), true);
 
-// 3b) 旧订阅迟到退订只移除 callback，不得清除新挂载 reservation
+// 3b) claim fence 属于 owner+generation，而不是单个 thread；新 claim 发布或释放后旧 claim 都不能复活
+st = makeStore();
+genA = st.beginThreadReservation("winA");
+check("旧 claim 先认领 A", st.acquireThread(["A"], "winA", genA, 1), "A");
+check("新 claim 可跨 thread 认领 B", st.acquireThread(["B"], "winA", genA, 2), "B");
+check("当前 claim 可认领附属目标 C", st.acquireThread(["C"], "winA", genA, 2), "C");
+check("当前 claim 可释放附属目标 C", st.releaseThread("C", "winA", genA, 2), true);
+check("跨 thread 后旧 claim 不得认领 C", st.acquireThread(["C"], "winA", genA, 1), null);
+check("旧 claim 仍可续约自己的 A", st.renewThread("A", "winA", genA, 1), true);
+check("旧 claim 只可精确清理自己的 A", st.releaseThread("A", "winA", genA, 1), true);
+check("释放当前 claim", st.releaseThread("B", "winA", genA, 2), true);
+check("当前 claim 释放后旧 claim 仍不得认领", st.acquireThread(["C"], "winA", genA, 1), null);
+
+// 3c) 旧订阅迟到退订只移除 callback，不得清除新挂载 reservation
 const unsubscribeOld = st.subscribe("T", () => {});
 const newestGenA = st.beginThreadReservation("winA");
 check("订阅期间同 owner 新挂载重认领", st.acquireThread(["T"], "winA", newestGenA, 1), "T");

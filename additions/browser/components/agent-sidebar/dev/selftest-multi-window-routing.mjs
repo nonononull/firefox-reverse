@@ -153,6 +153,7 @@ assert.equal(
 
 function makeClaimSession() {
   const generations = new Map();
+  const claims = new Map();
   const reservations = new Map();
   const running = new Set();
   const runCalls = [];
@@ -162,10 +163,11 @@ function makeClaimSession() {
     beginThreadReservation(owner) {
       const generation = (generations.get(owner) || 0) + 1;
       generations.set(owner, generation);
+      claims.set(owner, 0);
       return generation;
     },
     acquireThread(ids, owner, generation, claim) {
-      if (generations.get(owner) !== generation || !Number.isInteger(claim) || claim <= 0) {
+      if (generations.get(owner) !== generation || !Number.isInteger(claim) || claim < claims.get(owner)) {
         return null;
       }
       for (const id of ids || []) {
@@ -173,10 +175,10 @@ function makeClaimSession() {
         if (held?.owner !== owner && held) {
           continue;
         }
-        if (held?.owner === owner && held.generation === generation && held.claim > claim) {
-          continue;
-        }
         reservations.set(id, { owner, generation, claim });
+        if (claim > claims.get(owner)) {
+          claims.set(owner, claim);
+        }
         return id;
       }
       return null;
@@ -301,6 +303,7 @@ function makeClaimSession() {
     },
   };
   const owner = createReservationOwner(session, host);
+  const ownerClaim = createClaim(owner);
   const conversations = {
     async deleteThread(_id, canDelete) {
       assert.equal(typeof canDelete, "function", "删除必须把所有权 guard 传到存储线性化点");
@@ -311,7 +314,7 @@ function makeClaimSession() {
     },
   };
   await assert.rejects(
-    () => deleteOwnedThread(conversations, session, "target", owner),
+    () => deleteOwnedThread(conversations, session, "target", ownerClaim, true),
     /正在运行/,
   );
   assert.equal(acquireCount, 0, "运行中的 thread 必须在认领前拒绝删除");
@@ -320,7 +323,7 @@ function makeClaimSession() {
   running = false;
   session.acquireThread = () => null;
   await assert.rejects(
-    () => deleteOwnedThread(conversations, session, "target", owner),
+    () => deleteOwnedThread(conversations, session, "target", ownerClaim, true),
     /另一个浏览器窗口/,
   );
   assert.equal(deleteCount, 0, "被其它窗口预留的 thread 不得删除");
@@ -330,7 +333,7 @@ function makeClaimSession() {
     return "target";
   };
   await assert.rejects(
-    () => deleteOwnedThread(conversations, session, "target", owner),
+    () => deleteOwnedThread(conversations, session, "target", ownerClaim, true),
     /正在运行/,
   );
   assert.equal(deleteCount, 0, "认领后变为运行态的 thread 仍不得删除");
@@ -338,7 +341,7 @@ function makeClaimSession() {
 
   running = false;
   session.acquireThread = () => "target";
-  await deleteOwnedThread(conversations, session, "target", owner);
+  await deleteOwnedThread(conversations, session, "target", ownerClaim, true);
   assert.equal(deleteCount, 1);
   assert.equal(releaseCount, 2, "删除完成后必须释放本次临时预留");
 
@@ -351,7 +354,7 @@ function makeClaimSession() {
     deleteCount += 1;
   };
   await assert.rejects(
-    () => deleteOwnedThread(conversations, session, "target", owner),
+    () => deleteOwnedThread(conversations, session, "target", ownerClaim, true),
     /authorization lost/,
   );
   assert.equal(deleteCount, 1, "新挂载在存储 load 期间接管后，旧挂载不得删除 thread");
@@ -739,6 +742,57 @@ function makeClaimSession() {
     ["发送 A"],
     "session.run 必须看到同步提交后的权威消息",
   );
+
+  const runThrowStore = new ConversationStore({ memoryOnly: true });
+  const runThrowThread = await runThrowStore.createThread(undefined, null, null, () => true);
+  let runThrowCalls = 0;
+  const runThrowState = { started: false };
+  await assert.rejects(
+    () => commitOwnedUserMessage(
+      runThrowStore,
+      {
+        isRunning: () => false,
+        run() {
+          runThrowCalls += 1;
+          throw new Error("run failed");
+        },
+      },
+      runThrowThread.id,
+      { role: "user", content: "不得残留" },
+      {},
+      () => true,
+      () => {},
+      runThrowState,
+    ),
+    /run failed/,
+  );
+  assert.equal(runThrowCalls, 1);
+  assert.equal(runThrowState.started, false, "session.run 抛错时不得标记已启动");
+  assert.equal((await runThrowStore.getThread(runThrowThread.id)).messages.length, 0, "session.run 抛错时回滚用户消息");
+
+  const notRunningStore = new ConversationStore({ memoryOnly: true });
+  const notRunningThread = await notRunningStore.createThread(undefined, null, null, () => true);
+  let notRunningCalls = 0;
+  const notRunningState = { started: false };
+  await assert.rejects(
+    () => commitOwnedUserMessage(
+      notRunningStore,
+      {
+        isRunning: () => false,
+        run() { notRunningCalls += 1; },
+      },
+      notRunningThread.id,
+      { role: "user", content: "未启动不得残留" },
+      {},
+      () => true,
+      () => {},
+      notRunningState,
+    ),
+    /Agent 未进入运行态/,
+  );
+  assert.equal(notRunningCalls, 1);
+  assert.equal(notRunningState.started, false, "session.run 未进入 running 时不得标记已启动");
+  assert.equal((await notRunningStore.getThread(notRunningThread.id)).messages.length, 0, "session.run 未进入 running 时回滚用户消息");
 
   const saveFailStore = new ConversationStore({ memoryOnly: true });
   const saveFailThread = await saveFailStore.createThread(undefined, null, null, () => true);

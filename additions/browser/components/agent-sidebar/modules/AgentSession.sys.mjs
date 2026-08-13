@@ -72,6 +72,7 @@ function summarizeEnv(env) {
 
 const sessions = new Map(); // threadId -> state
 const reservationGenerations = new Map(); // owner -> 当前有效挂载代际
+const reservationClaims = new Map(); // owner -> 当前挂载已成功发布的最高 claim
 
 // 多窗口预留的心跳过期：持有窗口活着时每隔几秒续约 ts；超过此时长没续约 = 持有者已销毁
 // （切栏/关窗时文档被异常拆除、releaseThread 没跑成）→ 预留视为可回收。比心跳间隔(3s)宽裕。
@@ -282,6 +283,7 @@ export const agentSession = {
     }
     const generation = (reservationGenerations.get(owner) || 0) + 1;
     reservationGenerations.set(owner, generation);
+    reservationClaims.set(owner, 0);
     return generation;
   },
   /** 多窗口隔离：从候选线程里认领一条**没被别的活窗口占用**的，原子预留并返回其 id；
@@ -290,6 +292,10 @@ export const agentSession = {
    *  缺 owner/generation 或旧 generation 时失败关闭。每个侧栏挂载/切线程时调。 */
   acquireThread(candidateIds, owner, generation, claim) {
     if (reservationGenerations.get(owner) !== generation || !Number.isInteger(claim) || claim <= 0) {
+      return null;
+    }
+    const highestClaim = reservationClaims.get(owner);
+    if (!Number.isInteger(highestClaim) || claim < highestClaim) {
       return null;
     }
     const now = Date.now();
@@ -301,9 +307,11 @@ export const agentSession = {
       const r = s.reservation;
       // 仅「别的 owner 且心跳仍新鲜」= 真有另一个活窗口占用；自己持有 / 无预留 / 预留过期(持有者已销毁) → 认领
       const liveOther = r && r.owner !== owner && now - r.ts < RESERVE_TTL_MS;
-      const newerSameMount = r && r.owner === owner && r.generation === generation && r.claim > claim;
-      if (!liveOther && !newerSameMount) {
+      if (!liveOther) {
         s.reservation = { owner, generation, claim, ts: now };
+        if (claim > highestClaim) {
+          reservationClaims.set(owner, claim);
+        }
         return id;
       }
     }

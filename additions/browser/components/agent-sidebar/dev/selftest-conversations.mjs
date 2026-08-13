@@ -147,6 +147,32 @@ guardedStore._load = workspaceLoad;
 ok(workspaceRejected, "setThreadWorkspace 在线性化点失权时失败关闭");
 ok((await guardedStore.getThread(guardedThread.id)).workspace === null, "setThreadWorkspace 失权时不修改目录");
 
+const saveFailureStore = new ConversationStore({ memoryOnly: true });
+const saveFailureThread = await saveFailureStore.createThread(undefined, null, null, () => true);
+const originalSave = saveFailureStore._save.bind(saveFailureStore);
+const originalUpdatedAt = saveFailureThread.updatedAt;
+saveFailureStore._save = async () => { throw new Error("save failed"); };
+let modeSaveRejected = false;
+try {
+  await saveFailureStore.setThreadMode(saveFailureThread.id, "assist", () => true);
+} catch (e) {
+  modeSaveRejected = /save failed/.test(String(e?.message || e));
+}
+ok(modeSaveRejected, "setThreadMode 透传保存失败");
+ok(saveFailureThread.mode === null, "setThreadMode 保存失败时回滚内存模式");
+ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadMode 保存失败时回滚更新时间");
+
+let workspaceSaveRejected = false;
+try {
+  await saveFailureStore.setThreadWorkspace(saveFailureThread.id, "D:\\failed", () => true);
+} catch (e) {
+  workspaceSaveRejected = /save failed/.test(String(e?.message || e));
+}
+ok(workspaceSaveRejected, "setThreadWorkspace 透传保存失败");
+ok(saveFailureThread.workspace === null, "setThreadWorkspace 保存失败时回滚内存目录");
+ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadWorkspace 保存失败时回滚更新时间");
+saveFailureStore._save = originalSave;
+
 await s.renameThread(t1.id, "RC4 入口分析");
 ok((await s.getThread(t1.id)).title === "RC4 入口分析", "renameThread 生效");
 

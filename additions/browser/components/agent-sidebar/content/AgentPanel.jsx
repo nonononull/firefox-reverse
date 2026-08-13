@@ -555,15 +555,14 @@ function restoreUnsentInput(current, unsent) {
   return unsent + "\n" + current;
 }
 
-async function deleteOwnedThread(conversations, session, threadId, reservation) {
+async function deleteOwnedThread(conversations, session, threadId, reservation, releaseOnFailure = false) {
   if (!hasThreadReservation(session) || typeof session.isRunning !== "function") {
     throw new Error("多窗口会话预留或运行状态接口不完整，已拒绝删除历史会话。");
   }
   if (session.isRunning(threadId)) {
     throw new Error("该会话正在运行，不能删除。");
   }
-  const temporaryClaim = !Number.isInteger(reservation?.claim);
-  const deleteReservation = temporaryClaim ? createReservationClaim(reservation) : reservation;
+  const deleteReservation = Number.isInteger(reservation?.claim) ? reservation : null;
   let deleted = false;
   const acquired = deleteReservation
     ? acquireOwnedThread(session, [threadId], deleteReservation)
@@ -588,7 +587,7 @@ async function deleteOwnedThread(conversations, session, threadId, reservation) 
     );
     deleted = true;
   } finally {
-    if (temporaryClaim || deleted) {
+    if (releaseOnFailure || deleted) {
       releaseOwnedThread(session, threadId, deleteReservation);
     }
   }
@@ -1695,10 +1694,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     );
     try {
       const currentSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
-      const deleteReservation = id === currentSelection.id
-        ? reservationForSelection(reservationRef.current, currentSelection)
-        : reservationRef.current;
-      await deleteOwnedThread(conversations, session, id, deleteReservation);
+      const deletingCurrent = id === currentSelection.id;
+      const deleteReservation = reservationForSelection(reservationRef.current, currentSelection);
+      await deleteOwnedThread(conversations, session, id, deleteReservation, !deletingCurrent);
       const list = await refreshThreads();
       if (!sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
         return;

@@ -137,9 +137,20 @@ export class ConversationStore {
     const t = d.threads.find(x => x.id === id);
     if (t) {
       requireAuthorization(canSet, "workspace update", id, t);
-      t.workspace = workspace || null;
-      t.updatedAt = nextTs();
-      await this._save();
+      const previous = { workspace: t.workspace, updatedAt: t.updatedAt };
+      const nextWorkspace = workspace || null;
+      t.workspace = nextWorkspace;
+      const mutationUpdatedAt = nextTs();
+      t.updatedAt = mutationUpdatedAt;
+      try {
+        await this._save();
+      } catch (e) {
+        if (t.workspace === nextWorkspace && t.updatedAt === mutationUpdatedAt) {
+          t.workspace = previous.workspace;
+          t.updatedAt = previous.updatedAt;
+        }
+        throw e;
+      }
     }
     return t;
   }
@@ -150,9 +161,20 @@ export class ConversationStore {
     const t = d.threads.find(x => x.id === id);
     if (t) {
       requireAuthorization(canSet, "mode update", id, t);
-      t.mode = mode || null;
-      t.updatedAt = nextTs();
-      await this._save();
+      const previous = { mode: t.mode, updatedAt: t.updatedAt };
+      const nextMode = mode || null;
+      t.mode = nextMode;
+      const mutationUpdatedAt = nextTs();
+      t.updatedAt = mutationUpdatedAt;
+      try {
+        await this._save();
+      } catch (e) {
+        if (t.mode === nextMode && t.updatedAt === mutationUpdatedAt) {
+          t.mode = previous.mode;
+          t.updatedAt = previous.updatedAt;
+        }
+        throw e;
+      }
     }
     return t;
   }
