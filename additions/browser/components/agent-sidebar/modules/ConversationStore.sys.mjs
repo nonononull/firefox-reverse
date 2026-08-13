@@ -185,8 +185,15 @@ export class ConversationStore {
     }
   }
 
-  async deleteThread(id) {
+  async deleteThread(id, canDelete) {
+    if (typeof canDelete !== "function") {
+      throw new Error("conversation deletion requires an ownership guard: " + id);
+    }
     const d = await this._load();
+    // guard 必须在线程列表实际变更前执行；调用方失去 reservation 时保持原数据不动。
+    if (canDelete() !== true) {
+      throw new Error("conversation deletion authorization lost: " + id);
+    }
     const before = d.threads.length;
     d.threads = d.threads.filter(t => t.id !== id);
     if (d.threads.length !== before) {

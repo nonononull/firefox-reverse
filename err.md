@@ -58,3 +58,12 @@
 - 修复：实现提交 `3f9f961c1728a9f735222667b139458b32fc0ea3`、tree `c102564f779c727f44d00e2632124d7bebe1c4d1` 为选择型操作增加有界 intent 事务；异步结果提交前核验 ID/revision/intent；发送每个异步阶段后重新续约，失权时不启动并保留输入；reservation API 不完整时失败关闭。迟到的新建 thread 主动释放，迟到历史认领不清除同 owner 的更新 reservation。
 - 验证：源码冻结工作树执行 `npm ci`、sidebar bundle `215.0kb`、13/13 Node 自测文件、thread reservation 22 项断言、multi-window routing 动态合同、branding 22 文件、`git diff --check` 均通过；`AgentSession.sys.mjs` 与 `package-lock.json` 零改动。
 - 边界：没有启动 Firefox、账号、live、Reverse Lab、Pingbo 或 Bet365；fork 仓库只有 `release.yml`，没有 pull request workflow，故该结果为本地门禁而非 CI。
+
+## 2026-08-14：同 owner 旧挂载与历史删除缺少完整代际隔离
+
+- 取证时间：`2026-08-14 00:00:49 +08:00`。
+- 现象：独立 reviewer 对 `0937c0f43b78b8babd510563eaf4c8d8ddc49a39` 返回 `REQUEST_CHANGES`（P1=3、P2=1）。旧挂载与新挂载复用稳定 owner 时，迟到 release 可清除新 reservation；发送 A 失权时用户随后输入 B 会覆盖 A；历史删除不认领 reservation，可删除其它窗口运行中的 thread；关键竞态主要依赖源码正则。
+- 红测：`selftest-thread-reservation.mjs` 直接提取并执行生产 `begin/acquire/renew/release/subscribe`，覆盖旧 generation 的迟到 acquire、renew、release 和 unsubscribe；`selftest-multi-window-routing.mjs` 动态覆盖无损输入合并、删除前运行态、独占认领、删除线性化前失权及旧挂载创建前拒绝；`selftest-conversations.mjs` 验证缺 guard 或 `_load()` 后 guard 失败均保留原线程。
+- 修复：`AgentSession` 为稳定 owner 维护权威 generation，reservation 精确绑定 `owner + generation`，旧 generation 全部失败关闭；订阅退订不再隐式清 reservation。`AgentPanel` 统一使用 generation-aware helper，发送失败以 `A\nB` 保留两段输入；历史删除先认领并复核运行态，随后把同步 ownership guard 传给 `ConversationStore.deleteThread()`，在实际过滤线程列表前再次验证。
+- 验证：当前待提交工作树无重试执行 `npm ci` 和完整 PowerShell 门禁，sidebar bundle `216.4kb`、13/13 Node 自测文件、reservation 34 项断言、ConversationStore 15 项断言、multi-window routing 合同、branding 22 文件及 `git diff --check` 全部通过；`package-lock.json` 未变化，bundle 仍由 `.gitignore` 排除。该证据尚未替代 fresh exact-head reviewer。
+- 边界：`AgentSession.run()`、`callTool()`、每 thread sessions map 与 raw-tool 全局锁未修改；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。

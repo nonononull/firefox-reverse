@@ -17,15 +17,16 @@ brainstorming_method: executor-native
 execution_contract: agos.execution-contract.v1
 command_source: project-build-docs
 implicit_tool_preconditions: forbidden
-scope_hash: sha256:4147bdeba7cc8a5c2d3c06e9178b1804ecf81c85917490d0c8b1607d2b0d5500
+scope_hash: sha256:8bc7b0e93de19d61eff426e6d6b0e79679c0b0fe55b3a75b98c201668ad87f12
 owner_scope_ref: docs/plans/sessions/issue-1-multi-window-thread-routing.owner-scope.yml
-owner_scope_hash: sha256:4147bdeba7cc8a5c2d3c06e9178b1804ecf81c85917490d0c8b1607d2b0d5500
+owner_scope_hash: sha256:8bc7b0e93de19d61eff426e6d6b0e79679c0b0fe55b3a75b98c201668ad87f12
 selected_business_path: github-issue-pr-merge
 verification_commands:
   - npm ci --prefix additions/browser/components/agent-sidebar
   - npm --prefix additions/browser/components/agent-sidebar run build
   - node additions/browser/components/agent-sidebar/dev/selftest-multi-window-routing.mjs
   - node additions/browser/components/agent-sidebar/dev/selftest-thread-reservation.mjs
+  - node additions/browser/components/agent-sidebar/dev/selftest-conversations.mjs
   - bash scripts/selftest-agent-tools.sh
   - git diff --check
 delivery_contract: agos.issue-pr-merge.v1
@@ -52,14 +53,15 @@ forbidden_operations:
   - mutate-reverse-lab
   - mutate-pingbo-or-bet365
   - access-account-or-live-origin
-  - modify-agent-session-reservation-or-raw-tool-lock
+  - modify-agent-session-outside-reservation-fence
+  - modify-agent-session-run-or-raw-tool-lock
 
 ## Approved Decision
 
-- 决策：保留 `AgentSession` 的 owner token、心跳、同 thread 独占和多 thread 并行；只删除 `AgentPanel` 对其它窗口运行 thread 的自动 `openThread()` 接管，提示条点击改为 `newChat()`。
-- 理由：现有多窗口底层能力有效，单任务观感来自 UI 路由错误；最小修复无需修改线程预留或全局 raw-tool 安全锁。
-- 范围：fork 内三个源码/测试文件及本任务控制文档，完成 fork 内 Issue、PR、独立审查和 squash merge。
-- 拒绝方案：不实现双窗口编辑同一 thread，不实现只读跟随，不增加 window/thread 公共 API，不向公开上游提 PR，不发布或安装浏览器。
+- 决策：保留 `AgentSession` 的稳定 owner、心跳、TTL、同 thread 独占和多 thread 并行；删除 `AgentPanel` 对其它窗口运行 thread 的自动 `openThread()` 接管，提示条点击改为 `newChat()`，并为同 owner 重挂载增加权威 reservation generation fence。
+- 理由：UI 路由修复解决单任务观感；exact-head reviewer 进一步证明同 owner 旧挂载可迟到释放新挂载 reservation，故只在 `AgentSession` reservation 三方法与订阅清理内增加最小代际校验，不能仅靠面板本地状态。
+- 范围：fork 内 `AgentPanel`、`AgentSession` reservation fence、`ConversationStore` 删除线性化 guard、三份动态自测、聚合入口及本任务控制文档，完成 fork 内 Issue、PR、独立审查和 squash merge。
+- 拒绝方案：不实现双窗口编辑同一 thread，不实现只读跟随，不增加对外 MCP/worker 工具；内部只新增 generation-aware reservation 方法，不向公开上游提 PR，不发布或安装浏览器。
 
 ## Local Knowledge Lookup
 
@@ -77,6 +79,7 @@ local_knowledge_lookup:
     - GitHub Issue #1
     - additions/browser/components/agent-sidebar/content/AgentPanel.jsx
     - additions/browser/components/agent-sidebar/modules/AgentSession.sys.mjs
+    - additions/browser/components/agent-sidebar/modules/ConversationStore.sys.mjs
     - additions/browser/components/agent-sidebar/dev/selftest-thread-reservation.mjs
   missing_coverage:
     - 本地知识库没有本缺陷专用结论，以 v0.22.4 exact source、红测和现有 reservation 自测为事实依据
@@ -154,11 +157,11 @@ change_contract:
     - name: different-threads-may-run-in-parallel
       owner: AgentSession-sessions-map
       baseline_ref: git:7a77a66ed8361f858cfa0b19fd8239b63b4535f0
-      regression_ref: AgentSession.sys.mjs remains unchanged
+      regression_ref: AgentSession run and per-thread sessions map remain unchanged; aggregate selftests pass
     - name: raw-tool-global-concurrency-guard
       owner: AgentSession-callTool
       baseline_ref: git:7a77a66ed8361f858cfa0b19fd8239b63b4535f0
-      regression_ref: AgentSession.sys.mjs remains unchanged and aggregate selftests pass
+      regression_ref: AgentSession callTool region remains unchanged and aggregate selftests pass
   adjacent_surfaces:
     - name: current-thread-stream-recovery
       why_adjacent: 外部运行探测 effect 也负责当前 thread 的续看恢复
@@ -176,13 +179,19 @@ change_contract:
       why_adjacent: 发送在历史、模式、笔记和消息持久化之间跨越多个 await
       risk: 一次续约后失权仍写入或启动旧 thread
       owner: AgentPanel-send
+    - name: history-delete-linearization
+      why_adjacent: 删除前的 reservation 复核与持久化修改之间存在异步 load 边界
+      risk: 同 owner 新挂载在 load 期间接管后，旧挂载仍删除新挂载正在使用的 thread
+      owner: AgentPanel-and-ConversationStore-delete
   historical_state_refs:
     - v0.22.4 old route calls openThreadRef.current(target.id)
     - red contract test fails on the old route and passes on the current worktree
     - reviewer git:42ff472263174d7cba38b38577d4a8312bd4a2d5 REQUEST_CHANGES P1=2 P2=3
+    - reviewer git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39 REQUEST_CHANGES P1=3 P2=1
   stale_verdict_invalidation_refs:
     - git:42ff472263174d7cba38b38577d4a8312bd4a2d5 reviewer verdict is failed historical evidence, not final approval
-    - 工作树测试结果只属于实现提交 3f9f961；治理提交后必须对 final exact HEAD/tree 重新审查
+    - git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39 reviewer verdict is failed historical evidence, not final approval
+    - 2026-08-14 最终工作树门禁只属于待提交实现；治理提交后必须对 final exact HEAD/tree 重新审查
   regression_checks:
     - surface: external-running-routing
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
@@ -196,6 +205,9 @@ change_contract:
     - surface: asynchronous-selection-and-send-races
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
       expected_result: dynamic selection revision/intent/pending and renew failure mutations are rejected; call-site ordering remains guarded
+    - surface: history-delete-linearization
+      command_or_evidence_ref: node selftest-conversations.mjs and node selftest-multi-window-routing.mjs
+      expected_result: missing guard and ownership loss after load both fail closed without deleting the thread
   sibling_regression_guard:
     status: passed
     closeout_rule: passed-or-blocked-before-done
@@ -207,9 +219,9 @@ change_contract:
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3
+        post_change_replay_ref: local-final-gate:2026-08-14T00:00:49+08:00
         expected_result: reservation suite and aggregate selftests pass
-        actual_result: PowerShell 完整链通过 sidebar bundle 215.0kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 22 项断言与动态 selection-intent multi-window routing 合同通过
+        actual_result: PowerShell 完整链一次通过 sidebar bundle 216.4kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 34 项断言、ConversationStore 15 项断言与动态 multi-window routing 合同通过
         owner_visible_status: passed
         regression_status: passed
     forbidden_ops_until_replay: []
@@ -240,16 +252,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3-sidebar-and-13-selftests-pass
+    result_ref: local-final-gate:2026-08-14T00:00:49+08:00-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3-bundle-215.0kb
+    result_ref: local-final-gate:2026-08-14T00:00:49+08:00-bundle-216.4kb
   review:
     command_ref: build.md#独立审查
-    result_ref: git:42ff472263174d7cba38b38577d4a8312bd4a2d5-request-changes-p1-2-p2-3; fresh final exact-head rereview pending
+    result_ref: git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39-request-changes-p1-3-p2-1; fresh final exact-head rereview pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: git:3f9f961c1728a9f735222667b139458b32fc0ea3-lockfile-agent-session-and-diff-boundaries-pass
+    result_ref: local-final-gate:2026-08-14T00:00:49+08:00-lockfile-ignored-bundle-and-10-file-boundary-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -266,3 +278,4 @@ execution_evidence:
 - `2026-08-13 19:50:40 +08:00`：修复提交 `b1e1c3ac7b3262c7883e9535c7ad027b4a5b9ac1`、tree `549fb36b1b27f52f6002951484c76b1a076a3625` 统一了三条创建路径的有界精确认领，并让 heartbeat 失权后按选择代际恢复。`npm ci` 与最终 PowerShell 完整门禁通过：bundle `211.4kb`、13/13 Node 自测文件、reservation 22 项断言和 branding 22 文件；最终 exact-head 独立复审仍待执行。
 - `2026-08-13 22:11:10 +08:00`：独立 reviewer 对治理 HEAD `42ff472263174d7cba38b38577d4a8312bd4a2d5`、tree `7984406d3abd65f6e5da030c2c163416667c6c66` 返回 `REQUEST_CHANGES`（P1=2、P2=3）。失败证据包括初始化迟到覆盖新选择、发送跨多个 await 后失权仍继续、reservation API 缺失失败开放、关键竞态缺动态 mutation 保护以及旧治理 SHA/无 PR CI 表述漂移。
 - `2026-08-13 22:11:10 +08:00`：实现提交 `3f9f961c1728a9f735222667b139458b32fc0ea3`、tree `c102564f779c727f44d00e2632124d7bebe1c4d1` 使用最小 selection intent 事务闭合迟到初始化/新对话/历史打开与失权恢复；发送每个异步阶段后重新续约并在最后一次验证后无 await 启动；缺 reservation API 失败关闭。源码冻结门禁通过：`npm ci`、bundle `215.0kb`、13/13 Node 自测文件、reservation 22 项断言、动态路由合同、branding 22 文件和 `git diff --check`。最终治理 HEAD/tree 与 fresh exact-head review 仍待完成。
+- `2026-08-14 00:00:49 +08:00`：独立 reviewer 对 `0937c0f43b78b8babd510563eaf4c8d8ddc49a39` 返回 `REQUEST_CHANGES`（P1=3、P2=1），指出同 owner 迟到释放、失权发送文本覆盖、历史删除绕过 reservation 和关键竞态动态覆盖不足。当前工作树增加权威 reservation generation fence、无损输入合并、受控历史删除及生产源码动态断言；父线程复核进一步将同步 ownership guard 下沉到 `ConversationStore` 删除线性化点，封闭 `_load()` 期间新挂载接管的 TOCTOU。无重试最终链通过 `npm ci`、bundle `216.4kb`、13/13 Node 自测文件、reservation 34 项断言、ConversationStore 15 项断言、动态路由合同、branding 22 文件与 `git diff --check`；最终提交和 fresh exact-head review 仍待完成。

@@ -27,6 +27,7 @@ npm --prefix .\additions\browser\components\agent-sidebar run build
 ```powershell
 node .\additions\browser\components\agent-sidebar\dev\selftest-multi-window-routing.mjs
 node .\additions\browser\components\agent-sidebar\dev\selftest-thread-reservation.mjs
+node .\additions\browser\components\agent-sidebar\dev\selftest-conversations.mjs
 ```
 
 第一项验证其它窗口的运行 thread 不会被自动或点击接管，并执行以下创建/失权交错：
@@ -34,13 +35,15 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-thread-reservatio
 - 首个新 thread 被其它窗口抢先认领时，只绑定随后成功认领的 thread。
 - 连续三次认领失败后停止并报错，不删除已被其它窗口认领的空 thread。
 - `renewThread()` 返回 `false` 或抛错时立即进入失权恢复；旧 heartbeat 不得覆盖用户随后选择的新 thread。
-- 缺少 `acquireThread`、`renewThread` 或 `releaseThread` 任一 reservation API 时失败关闭，不创建或打开未受保护的 thread。
+- 缺少 `beginThreadReservation`、`acquireThread`、`renewThread` 或 `releaseThread` 任一 API 时失败关闭，不创建或打开未受保护的 thread。
+- 同 owner 新挂载取得新 generation 后，旧挂载的 acquire、renew、release 和 unsubscribe 都不能影响新 reservation。
 - 初始化、新对话和历史打开在第一个异步读取前登记选择 intent；相同 thread ID/revision 下的更新 intent 也会淘汰旧异步结果。
-- 发送链在每个异步准备阶段后同时核验 selection intent 与 `renewThread()`；失权时不启动任务并保留输入。
+- 发送链在每个异步准备阶段后同时核验 selection intent 与 `renewThread()`；失权时不启动任务，并把本次文本无损合并到用户随后输入之前。
+- 历史删除先拒绝运行态，再取得独占 reservation 并复核运行态；`ConversationStore` 在实际修改线程列表前再次执行同步所有权 guard，加载期间失权、其它窗口占用或运行中的 thread 均不得删除。
 - 选择事务的 pending 标记只由匹配 intent 清除；旧事务结束不得清除更新事务。
 - 初始化、发送前建会话和“新对话”统一经过有界精确认领入口。
 
-第二项验证 owner token、心跳、TTL 与同 thread 独占保持不变。
+第二项验证 owner token、generation、心跳、TTL 与同 thread 独占保持不变。第三项验证删除缺少 guard 或在线性化前失权时失败关闭并保留原线程。
 
 ## 完整轻量门禁
 
@@ -84,8 +87,9 @@ Unix/release 环境可继续执行 `bash scripts/selftest-agent-tools.sh`。本�
 - `renewThread()` 返回 `false` 或抛错后不得继续使用旧 thread。
 - 初始化、新对话、历史打开、流式回载和外部运行探测的异步结果必须同时匹配 thread ID 与选择代际；选择型操作还必须匹配 intent。
 - 发送从落用户消息到 `session.run()` 的每个 `await` 后都必须重新续约并验证 intent；最后一次验证与 `session.run()` 之间不得再有 `await`。
-- 迟到的新建 thread 必须释放；同 owner 的迟到历史认领不能释放更新操作的 reservation，只能等待既有 TTL 回收。
-- `AgentSession.sys.mjs` 未修改，同 thread 独占和 raw-tool 全局保护保持原状。
+- 迟到的新建 thread 必须释放；同 owner 的旧 generation 不能 acquire、renew 或 release 更新挂载的 reservation。
+- 历史删除必须把同步所有权 guard 传到 `ConversationStore.deleteThread()`；guard 必须在 `_load()` 后、过滤线程列表前执行，失权时不能产生删除写入。
+- `AgentSession.sys.mjs` 只允许修改 reservation generation fence 与无副作用订阅清理；`run()`、`callTool()`、多 thread sessions map 和 raw-tool 全局保护保持原状。
 - reviewer 结论必须绑定 exact HEAD/tree；最后一次源码变更后旧结论失效。
 
 ## 交付边界检查

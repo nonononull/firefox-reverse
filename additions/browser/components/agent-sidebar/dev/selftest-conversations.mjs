@@ -32,7 +32,38 @@ ok(list.find(t => t.id === t1.id).count === 2, "摘要带消息计数");
 await s.renameThread(t1.id, "RC4 入口分析");
 ok((await s.getThread(t1.id)).title === "RC4 入口分析", "renameThread 生效");
 
-await s.deleteThread(t2.id);
+let missingGuardRejected = false;
+try {
+  await s.deleteThread(t2.id);
+} catch (e) {
+  missingGuardRejected = /ownership guard/.test(String(e?.message || e));
+}
+ok(missingGuardRejected, "deleteThread 缺少所有权 guard 时失败关闭");
+ok((await s.getThread(t2.id)) !== null, "缺少 guard 时保留原线程");
+
+const originalLoad = s._load.bind(s);
+let loadCompleted = false;
+let guardRanAfterLoad = false;
+s._load = async () => {
+  const data = await originalLoad();
+  loadCompleted = true;
+  return data;
+};
+let lostGuardRejected = false;
+try {
+  await s.deleteThread(t2.id, () => {
+    guardRanAfterLoad = loadCompleted;
+    return false;
+  });
+} catch (e) {
+  lostGuardRejected = /authorization lost/.test(String(e?.message || e));
+}
+s._load = originalLoad;
+ok(guardRanAfterLoad, "deleteThread 在 load 后、变更列表前复核 guard");
+ok(lostGuardRejected, "删除线性化前失权时失败关闭");
+ok((await s.getThread(t2.id)) !== null, "删除线性化前失权时保留原线程");
+
+await s.deleteThread(t2.id, () => true);
 ok((await s.listThreads()).length === 1, "deleteThread 生效");
 
 console.log(`\nConversationStore 自测：${pass} passed, ${fail} failed`);

@@ -255,6 +255,7 @@ const _SVC = typeof Services !== "undefined" ? Services : null;
 
 function hasThreadReservation(session) {
   return !!session &&
+    typeof session.beginThreadReservation === "function" &&
     typeof session.acquireThread === "function" &&
     typeof session.renewThread === "function" &&
     typeof session.releaseThread === "function";
@@ -287,14 +288,63 @@ function sameSelectionIntent(selectionRef, intentRef, expected) {
     sameSelection(selectionRef.current, expected);
 }
 
-function releaseOwnedThread(session, threadId, owner) {
+function createReservationOwner(session, host) {
+  let owner = null;
+  if (host) {
+    if (!host.__frxAgentOwnerToken) {
+      host.__frxAgentOwnerToken = "win-" + Math.random().toString(36).slice(2);
+    }
+    owner = host.__frxAgentOwnerToken;
+  } else {
+    owner = "mount-" + Math.random().toString(36).slice(2);
+  }
+  const generation = session && typeof session.beginThreadReservation === "function"
+    ? session.beginThreadReservation(owner)
+    : null;
+  if (host && Number.isInteger(generation)) {
+    host.__frxAgentOwnerGeneration = generation;
+  }
+  return { owner, generation, host };
+}
+
+function reservationOwnerToken(reservation) {
+  return reservation?.owner;
+}
+
+function isReservationOwnerCurrent(reservation) {
+  if (!reservation || typeof reservation.owner !== "string" ||
+      !Number.isInteger(reservation.generation) || reservation.generation <= 0) {
+    return false;
+  }
+  return !reservation.host ||
+    reservation.host.__frxAgentOwnerGeneration === reservation.generation;
+}
+
+function acquireOwnedThread(session, candidateIds, reservation) {
+  if (!isReservationOwnerCurrent(reservation)) {
+    return null;
+  }
+  return session.acquireThread(
+    candidateIds,
+    reservationOwnerToken(reservation),
+    reservation.generation,
+  );
+}
+
+function releaseOwnedThread(session, threadId, reservation) {
   try {
-    if (session && typeof session.releaseThread === "function" && threadId) {
-      session.releaseThread(threadId, owner);
+    if (session && typeof session.releaseThread === "function" && threadId &&
+        isReservationOwnerCurrent(reservation)) {
+      return session.releaseThread(
+        threadId,
+        reservationOwnerToken(reservation),
+        reservation.generation,
+      ) === true;
     }
   } catch {
     /* ignore */
   }
+  return false;
 }
 
 function keepOwnedThreadForSelection(
@@ -303,35 +353,43 @@ function keepOwnedThreadForSelection(
   expected,
   thread,
   session,
-  owner,
+  reservation,
   releaseWhenStale = false,
 ) {
   if (sameSelectionIntent(selectionRef, intentRef, expected)) {
     return true;
   }
   if (releaseWhenStale && thread && selectionRef.current.id !== thread.id) {
-    releaseOwnedThread(session, thread.id, owner);
+    releaseOwnedThread(session, thread.id, reservation);
   }
   return false;
 }
 
-async function createOwnedThread(conversations, session, owner) {
+async function createOwnedThread(conversations, session, reservation) {
   if (!hasThreadReservation(session)) {
     throw new Error("多窗口会话预留 API 不完整，已拒绝创建未受保护的会话。");
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!isReservationOwnerCurrent(reservation)) {
+      throw new Error("当前窗口挂载代际已失效，已拒绝创建迟到会话。");
+    }
     const thread = await conversations.createThread();
-    if (session.acquireThread([thread.id], owner) === thread.id) {
+    if (acquireOwnedThread(session, [thread.id], reservation) === thread.id) {
       return thread;
     }
   }
   throw new Error("连续创建的新会话均被其它窗口认领，无法认领新会话。");
 }
 
-function renewOwnedThread(session, threadId, owner, onLost) {
+function renewOwnedThread(session, threadId, reservation, onLost) {
   try {
     if (session && typeof session.renewThread === "function" &&
-        session.renewThread(threadId, owner) === true) {
+        isReservationOwnerCurrent(reservation) &&
+        session.renewThread(
+          threadId,
+          reservationOwnerToken(reservation),
+          reservation.generation,
+        ) === true) {
       return true;
     }
   } catch {
@@ -341,16 +399,56 @@ function renewOwnedThread(session, threadId, owner, onLost) {
   return false;
 }
 
-function ownsSelectedThread(session, selectionRef, expected, owner) {
+function ownsSelectedThread(session, selectionRef, expected, reservation) {
   if (!sameSelection(selectionRef.current, expected)) {
     return false;
   }
-  return renewOwnedThread(session, expected.id, owner, () => {});
+  return renewOwnedThread(session, expected.id, reservation, () => {});
 }
 
-function ownsSelectedThreadForIntent(session, selectionRef, intentRef, expected, owner) {
+function ownsSelectedThreadForIntent(session, selectionRef, intentRef, expected, reservation) {
   return sameSelectionIntent(selectionRef, intentRef, expected) &&
-    ownsSelectedThread(session, selectionRef, expected, owner);
+    ownsSelectedThread(session, selectionRef, expected, reservation);
+}
+
+function restoreUnsentInput(current, unsent) {
+  if (!unsent) {
+    return current || "";
+  }
+  if (!current) {
+    return unsent;
+  }
+  if (current === unsent || current.startsWith(unsent + "\n")) {
+    return current;
+  }
+  return unsent + "\n" + current;
+}
+
+async function deleteOwnedThread(conversations, session, threadId, reservation) {
+  if (!hasThreadReservation(session) || typeof session.isRunning !== "function") {
+    throw new Error("多窗口会话预留或运行状态接口不完整，已拒绝删除历史会话。");
+  }
+  if (session.isRunning(threadId)) {
+    throw new Error("该会话正在运行，不能删除。");
+  }
+  if (acquireOwnedThread(session, [threadId], reservation) !== threadId) {
+    throw new Error("该会话已在另一个浏览器窗口打开，不能删除。");
+  }
+  try {
+    if (session.isRunning(threadId)) {
+      throw new Error("该会话正在运行，不能删除。");
+    }
+    if (!renewOwnedThread(session, threadId, reservation, () => {})) {
+      throw new Error("该会话的窗口预留已失效，不能删除。");
+    }
+    await conversations.deleteThread(
+      threadId,
+      () => !session.isRunning(threadId) &&
+        renewOwnedThread(session, threadId, reservation, () => {}),
+    );
+  } finally {
+    releaseOwnedThread(session, threadId, reservation);
+  }
 }
 
 export default function AgentPanel({ buildClient, conversations, store, router, runAgentTurn, session, isVisionModel, workspace, notes, toolNames = [], onOpenEnvironment, onOpenSettings, hidden = false }) {
@@ -396,26 +494,19 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   // 多窗口预留的 owner token：同一 chrome 窗口内复用（切到别的侧栏再切回=文档重建，但宿主窗口不变）→
   // 重挂载传同一 token → 立即重认领自己那条会话，不受心跳 TTL 影响。取不到宿主窗口则退化为 per-mount 随机
   // token（仍靠引擎侧 TTL 回收过期预留）。修「切栏回来→该会话已在另一窗口打开」。
-  const ownerRef = useRef(null);
-  if (!ownerRef.current) {
-    ownerRef.current = (() => {
-      try {
-        const host =
-          (typeof window !== "undefined" &&
-            (window.browsingContext?.topChromeWindow ||
-              window.docShell?.chromeEventHandler?.ownerGlobal)) ||
-          null;
-        if (host) {
-          if (!host.__frxAgentOwnerToken) {
-            host.__frxAgentOwnerToken = "win-" + Math.random().toString(36).slice(2);
-          }
-          return host.__frxAgentOwnerToken;
-        }
-      } catch {
-        /* 宿主窗口不可达 → 退化 */
-      }
-      return "mount-" + Math.random().toString(36).slice(2);
-    })();
+  const reservationRef = useRef(null);
+  if (!reservationRef.current) {
+    let host = null;
+    try {
+      host =
+        (typeof window !== "undefined" &&
+          (window.browsingContext?.topChromeWindow ||
+            window.docShell?.chromeEventHandler?.ownerGlobal)) ||
+        null;
+    } catch {
+      /* 宿主窗口不可达 → 退化 */
+    }
+    reservationRef.current = createReservationOwner(session, host);
   }
 
   const refreshThreads = useCallback(async () => {
@@ -448,7 +539,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         // 多窗口隔离：认领"最近且没被别的窗口占用"的线程续看；被占（另一窗口正用）或无历史 → 新建空线程给本窗口，
         // 确保两个浏览器窗口绝不绑同一条线程（否则对话/进度/工作目录全串）。
         const latest = list.length > 0 ? list[0].id : null;
-        const acquired = latest ? session.acquireThread([latest], ownerRef.current) : null;
+        const acquired = latest ? acquireOwnedThread(session, [latest], reservationRef.current) : null;
         let id = acquired === latest ? latest : null;
         pendingOwnedId = id;
         let t = id ? await conversations.getThread(id) : null;
@@ -460,7 +551,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
               initialSelection,
               { id },
               session,
-              ownerRef.current,
+              reservationRef.current,
             );
             pendingOwnedId = null;
           }
@@ -468,16 +559,16 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         }
         if (!t) {
           if (id) {
-            releaseOwnedThread(session, id, ownerRef.current);
+            releaseOwnedThread(session, id, reservationRef.current);
             pendingOwnedId = null;
           }
-          t = await createOwnedThread(conversations, session, ownerRef.current);
+          t = await createOwnedThread(conversations, session, reservationRef.current);
           pendingOwnedId = t.id;
           createdOwnedThread = true;
         }
         if (cancelled) {
           if (createdOwnedThread || !mountedRef.current) {
-            releaseOwnedThread(session, t.id, ownerRef.current);
+            releaseOwnedThread(session, t.id, reservationRef.current);
           }
           pendingOwnedId = null;
           return;
@@ -488,7 +579,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
           initialSelection,
           t,
           session,
-          ownerRef.current,
+          reservationRef.current,
           createdOwnedThread,
         );
         pendingOwnedId = null;
@@ -502,7 +593,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       } catch (e) {
         if (pendingOwnedId) {
           if (createdOwnedThread || !mountedRef.current) {
-            releaseOwnedThread(session, pendingOwnedId, ownerRef.current);
+            releaseOwnedThread(session, pendingOwnedId, reservationRef.current);
           }
           pendingOwnedId = null;
         }
@@ -515,7 +606,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       cancelled = true;
       if (pendingOwnedId) {
         if (createdOwnedThread || !mountedRef.current) {
-          releaseOwnedThread(session, pendingOwnedId, ownerRef.current);
+          releaseOwnedThread(session, pendingOwnedId, reservationRef.current);
         }
         pendingOwnedId = null;
       }
@@ -538,7 +629,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     if (!session || !currentId) {
       return undefined;
     }
-    const owner = ownerRef.current;
+    const reservation = reservationRef.current;
     const leaseSelection = { id: currentId, revision: selectionRef.current.revision };
     let heartbeat = null;
     let recovering = false;
@@ -576,7 +667,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       setMode(null);
       setError("当前会话的窗口预留已失效，正在创建当前窗口的独立会话。");
       try {
-        const thread = await createOwnedThread(conversations, session, owner);
+        const thread = await createOwnedThread(conversations, session, reservation);
         if (
           !mountedRef.current ||
           !keepOwnedThreadForSelection(
@@ -585,7 +676,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
             recoverySelection,
             thread,
             session,
-            owner,
+            reservation,
             true,
           )
         ) {
@@ -612,7 +703,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       if (!sameSelection(selectionRef.current, leaseSelection)) {
         return;
       }
-      renewOwnedThread(session, currentId, owner, () => void recover());
+      renewOwnedThread(session, currentId, reservation, () => void recover());
     };
     renew(); // 立即续一次（覆盖 acquire 与首个心跳之间的空窗）
     if (!recovering && session.renewThread) {
@@ -624,7 +715,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef.current.id !== currentId ||
         sameSelection(selectionRef.current, leaseSelection)
       ) {
-        releaseOwnedThread(session, currentId, owner);
+        releaseOwnedThread(session, currentId, reservation);
       }
     };
     let win = null;
@@ -828,7 +919,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef,
         selectionIntentRef,
         operationSelection,
-        ownerRef.current,
+        reservationRef.current,
       )) {
         return { id: operationSelection.id, reservationLost: false, selection: operationSelection };
       }
@@ -847,9 +938,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         reservationLost = true;
       }
 
-      const t = await createOwnedThread(conversations, session, ownerRef.current);
+      const t = await createOwnedThread(conversations, session, reservationRef.current);
       if (!mountedRef.current) {
-        releaseOwnedThread(session, t.id, ownerRef.current);
+        releaseOwnedThread(session, t.id, reservationRef.current);
         throw new Error("Agent 面板已关闭，已释放迟到的新会话。");
       }
       if (!keepOwnedThreadForSelection(
@@ -858,7 +949,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         operationSelection,
         t,
         session,
-        ownerRef.current,
+        reservationRef.current,
         true,
       )) {
         throw new Error("会话选择已变化，已释放迟到的新会话。");
@@ -1092,7 +1183,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       const ensured = await ensureThread();
       sendSelection = ensured.selection;
       if (ensured.reservationLost) {
-        setInput(current => current || text);
+        setInput(current => restoreUnsentInput(current, text));
         throw new Error("原会话已由另一个窗口接管，已为当前窗口创建独立会话，请重新发送。");
       }
       const tid = ensured.id;
@@ -1103,9 +1194,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
               selectionRef,
               selectionIntentRef,
               sendSelection,
-              ownerRef.current,
+              reservationRef.current,
             )) {
-          setInput(current => current || text);
+          setInput(current => restoreUnsentInput(current, text));
           throw new Error("当前会话的窗口预留已失效，已停止发送且未启动任务，请重新发送。");
         }
       };
@@ -1175,7 +1266,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       runStarted = true;
     } catch (e) {
       if (!runStarted) {
-        setInput(current => current || text);
+        setInput(current => restoreUnsentInput(current, text));
       }
       const errorSelection = e && e.selection ? e.selection : sendSelection;
       if (sameSelectionIntent(selectionRef, selectionIntentRef, errorSelection)) {
@@ -1205,9 +1296,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       pendingSelectionIntentRef,
     );
     try {
-      const t = await createOwnedThread(conversations, session, ownerRef.current);
+      const t = await createOwnedThread(conversations, session, reservationRef.current);
       if (!mountedRef.current) {
-        releaseOwnedThread(session, t.id, ownerRef.current);
+        releaseOwnedThread(session, t.id, reservationRef.current);
         return;
       }
       if (!keepOwnedThreadForSelection(
@@ -1216,7 +1307,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         expectedSelection,
         t,
         session,
-        ownerRef.current,
+        reservationRef.current,
         true,
       )) {
         return;
@@ -1256,7 +1347,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef,
         selectionIntentRef,
         selection,
-        ownerRef.current,
+        reservationRef.current,
       )) {
         throw new Error("当前会话的窗口预留已失效，未修改执行模式。");
       }
@@ -1268,7 +1359,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
           selectionRef,
           selectionIntentRef,
           selection,
-          ownerRef.current,
+          reservationRef.current,
         )) {
           throw new Error("当前会话的窗口预留已失效，请在当前会话重新选择执行模式。");
         }
@@ -1297,7 +1388,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
       const acquiredTarget = id !== expectedSelection.id;
       if (acquiredTarget) {
-        const got = session.acquireThread([id], ownerRef.current);
+        const got = acquireOwnedThread(session, [id], reservationRef.current);
         if (got !== id) {
           setError("该会话已在另一个浏览器窗口打开，不能在此窗口同时打开（避免对话串）。");
           setShowHistory(false);
@@ -1308,7 +1399,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         selectionRef,
         selectionIntentRef,
         expectedSelection,
-        ownerRef.current,
+        reservationRef.current,
       )) {
         setError("当前会话的窗口预留已失效，无法重新打开该会话。");
         setShowHistory(false);
@@ -1317,7 +1408,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       const t = await conversations.getThread(id);
       if (!mountedRef.current) {
         if (acquiredTarget) {
-          releaseOwnedThread(session, id, ownerRef.current);
+          releaseOwnedThread(session, id, reservationRef.current);
         }
         return;
       }
@@ -1327,19 +1418,19 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         expectedSelection,
         t || (acquiredTarget ? { id } : null),
         session,
-        ownerRef.current,
+        reservationRef.current,
       )) {
         return;
       }
       if (!t) {
         if (acquiredTarget) {
-          releaseOwnedThread(session, id, ownerRef.current);
+          releaseOwnedThread(session, id, reservationRef.current);
         }
         setError("历史会话不存在或已被删除。");
         setShowHistory(false);
         return;
       }
-      if (!renewOwnedThread(session, id, ownerRef.current, () => {})) {
+      if (!renewOwnedThread(session, id, reservationRef.current, () => {})) {
         setError("该会话的窗口预留已失效，无法打开。");
         setShowHistory(false);
         return;
@@ -1374,14 +1465,30 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
 
   async function deleteThread(id, ev) {
     ev.stopPropagation();
-    await conversations.deleteThread(id);
-    const list = await refreshThreads();
-    if (id === currentId) {
-      if (list.length > 0) {
-        openThread(list[0].id);
-      } else {
-        newChat();
+    const deleteSelection = beginSelectionIntent(
+      selectionRef,
+      selectionIntentRef,
+      pendingSelectionIntentRef,
+    );
+    try {
+      await deleteOwnedThread(conversations, session, id, reservationRef.current);
+      const list = await refreshThreads();
+      if (!sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
+        return;
       }
+      if (id === currentId) {
+        if (list.length > 0) {
+          openThread(list[0].id);
+        } else {
+          newChat();
+        }
+      }
+    } catch (e) {
+      if (sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
+        setError("删除历史会话失败：" + (e?.message || e));
+      }
+    } finally {
+      finishSelectionIntent(pendingSelectionIntentRef, deleteSelection);
     }
   }
 
