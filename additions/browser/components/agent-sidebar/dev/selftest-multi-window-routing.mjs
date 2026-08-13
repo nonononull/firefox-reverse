@@ -817,6 +817,35 @@ function makeClaimSession() {
   assert.equal(saveFailSession.runCalls.length, 1, "保存失败不得触发第二次任务启动");
 }
 
+{
+  const session = makeClaimSession();
+  const owner = createReservationOwner(session, {});
+  const currentClaim = createClaim(owner);
+  assert.equal(acquireOwnedThread(session, ["current"], currentClaim), "current");
+  const deleteClaim = createClaim(owner);
+  let deleted = false;
+  await deleteOwnedThread(
+    {
+      async deleteThread(id, canDelete) {
+        assert.equal(id, "history");
+        assert.equal(canDelete(), true);
+        deleted = true;
+      },
+    },
+    session,
+    "history",
+    deleteClaim,
+    true,
+  );
+  assert.equal(deleted, true, "非当前历史必须由最新 claim 完成受控删除");
+  assert.equal(session.reservations.has("history"), false, "附属删除结束后必须释放目标 reservation");
+  assert.equal(
+    renewOwnedThread(session, "current", currentClaim, () => {}),
+    true,
+    "附属删除发布更高 claim 后，当前 thread 的旧 reservation 仍可续约",
+  );
+}
+
 const reservationLifecycle = section(
   "// 多窗口隔离的**预留生命周期 + 心跳**",
   "// 流式渲染",
@@ -859,6 +888,7 @@ assert.equal(
 
 const deleteHistory = section("async function deleteThread", "function onKeyDown");
 assert.match(deleteHistory, /await deleteOwnedThread\s*\(/);
+assert.match(deleteHistory, /deletingCurrent[\s\S]*createReservationClaim\(reservationRef\.current\)/);
 assert.doesNotMatch(deleteHistory, /await conversations\.deleteThread\s*\(/);
 assert.match(deleteHistory, /beginSelectionIntent[\s\S]*finally\s*\{\s*finishSelectionIntent\s*\(/);
 

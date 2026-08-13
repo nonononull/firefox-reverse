@@ -1695,7 +1695,9 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     try {
       const currentSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
       const deletingCurrent = id === currentSelection.id;
-      const deleteReservation = reservationForSelection(reservationRef.current, currentSelection);
+      const deleteReservation = deletingCurrent
+        ? reservationForSelection(reservationRef.current, currentSelection)
+        : createReservationClaim(reservationRef.current);
       await deleteOwnedThread(conversations, session, id, deleteReservation, !deletingCurrent);
       const list = await refreshThreads();
       if (!sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
