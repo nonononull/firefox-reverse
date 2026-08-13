@@ -67,3 +67,12 @@
 - 修复：`AgentSession` 为稳定 owner 维护权威 generation，reservation 精确绑定 `owner + generation`，旧 generation 全部失败关闭；订阅退订不再隐式清 reservation。`AgentPanel` 统一使用 generation-aware helper，发送失败以 `A\nB` 保留两段输入；历史删除先认领并复核运行态，随后把同步 ownership guard 传给 `ConversationStore.deleteThread()`，在实际过滤线程列表前再次验证。
 - 验证：当前待提交工作树无重试执行 `npm ci` 和完整 PowerShell 门禁，sidebar bundle `216.4kb`、13/13 Node 自测文件、reservation 34 项断言、ConversationStore 15 项断言、multi-window routing 合同、branding 22 文件及 `git diff --check` 全部通过；`package-lock.json` 未变化，bundle 仍由 `.gitignore` 排除。该证据尚未替代 fresh exact-head reviewer。
 - 边界：`AgentSession.run()`、`callTool()`、每 thread sessions map 与 raw-tool 全局锁未修改；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。
+
+## 2026-08-14：异步存储边界仍允许失权写入与迟到资源泄漏
+
+- 取证时间：`2026-08-14 01:59:12 +08:00`。
+- 现象：独立 reviewer 对 `97252db1295e9209d8d2fa88d85c1d736214f227` 返回 `REQUEST_CHANGES`（P1=1、P2=4）。旧实现可在用户消息追加后、再次复核前失权并把同一文本恢复到输入框；迟到初始化/历史打开可能保留无心跳 reservation，创建失败可留下孤立 thread；模式写入也只在异步持久化后发现失权。关键生产交错仍主要由源码正则约束。
+- 红测：三份自测直接执行生产 reservation、`ConversationStore` 与路由 helper，覆盖 claim 代际、迟到创建/读取、错误非空 acquire ID、提交前失权零写入、消息与启动的同步提交、模式/目录/删除 guard 和保存失败语义。
+- 修复：实现 checkpoint `c9eca650fa0ce8a0ce40dbe09da39f78ce0d8e4d`、tree `f536dc22379ef2f7b9c7f2470a14d9bdf19fa611` 将 reservation 加固为 `owner + generation + monotonic claim`；`ConversationStore` 在实际修改前同步校验 ownership。用户消息追加与 `session.run()` 位于同一无 `await` 提交区间；迟到资源按精确 claim 清理或移交；模式、工作目录和删除均在存储修改前失败关闭。
+- 验证：源码 checkpoint 后无重试执行 `npm ci` 和完整 PowerShell 门禁，sidebar bundle `218.5kb`、13/13 Node 自测文件、thread reservation 43 项断言、ConversationStore 26/26、multi-window routing 动态合同、branding 22 文件及 `git diff --check` 全部通过。该证据仍需绑定后续治理提交并接受 fresh exact-head reviewer。
+- 边界：`AgentSession.run()`、`callTool()`、每 thread sessions map 与 raw-tool 全局锁未修改；没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库没有 PR workflow，不能把本地门禁写成 CI 通过。
