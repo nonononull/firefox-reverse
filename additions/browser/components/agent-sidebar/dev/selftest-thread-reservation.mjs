@@ -137,7 +137,17 @@ check("旧 claim 只可精确清理自己的 A", st.releaseThread("A", "winA", g
 check("释放当前 claim", st.releaseThread("B", "winA", genA, 2), true);
 check("当前 claim 释放后旧 claim 仍不得认领", st.acquireThread(["C"], "winA", genA, 1), null);
 
-// 3c) 旧订阅迟到退订只移除 callback，不得清除新挂载 reservation
+// 3c) 更高 claim 即使认领失败也已发布；旧 claim 不得趁目标空闲跨 thread 复活
+st = makeStore();
+genA = st.beginThreadReservation("winA");
+genB = st.beginThreadReservation("winB");
+check("失败发布前旧 claim 认领 A", st.acquireThread(["A"], "winA", genA, 1), "A");
+check("其它 owner 先占 B", st.acquireThread(["B"], "winB", genB, 1), "B");
+check("新 claim 认领被占 B 失败", st.acquireThread(["B"], "winA", genA, 2), null);
+check("失败发布后旧 claim 不得认领空闲 C", st.acquireThread(["C"], "winA", genA, 1), null);
+check("失败发布后旧 claim 仍可续约自己的 A", st.renewThread("A", "winA", genA, 1), true);
+
+// 3d) 旧订阅迟到退订只移除 callback，不得清除新挂载 reservation
 const unsubscribeOld = st.subscribe("T", () => {});
 const newestGenA = st.beginThreadReservation("winA");
 check("订阅期间同 owner 新挂载重认领", st.acquireThread(["T"], "winA", newestGenA, 1), "T");

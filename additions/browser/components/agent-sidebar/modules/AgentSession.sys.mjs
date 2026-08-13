@@ -72,7 +72,7 @@ function summarizeEnv(env) {
 
 const sessions = new Map(); // threadId -> state
 const reservationGenerations = new Map(); // owner -> 当前有效挂载代际
-const reservationClaims = new Map(); // owner -> 当前挂载已成功发布的最高 claim
+const reservationClaims = new Map(); // owner -> 当前挂载已发布的最高 claim
 
 // 多窗口预留的心跳过期：持有窗口活着时每隔几秒续约 ts；超过此时长没续约 = 持有者已销毁
 // （切栏/关窗时文档被异常拆除、releaseThread 没跑成）→ 预留视为可回收。比心跳间隔(3s)宽裕。
@@ -298,6 +298,10 @@ export const agentSession = {
     if (!Number.isInteger(highestClaim) || claim < highestClaim) {
       return null;
     }
+    // 尝试即发布：即使目标被占，旧异步 claim 也不能再跨 thread 认领空目标。
+    if (claim > highestClaim) {
+      reservationClaims.set(owner, claim);
+    }
     const now = Date.now();
     for (const id of (candidateIds || [])) {
       if (!id) {
@@ -309,9 +313,6 @@ export const agentSession = {
       const liveOther = r && r.owner !== owner && now - r.ts < RESERVE_TTL_MS;
       if (!liveOther) {
         s.reservation = { owner, generation, claim, ts: now };
-        if (claim > highestClaim) {
-          reservationClaims.set(owner, claim);
-        }
         return id;
       }
     }

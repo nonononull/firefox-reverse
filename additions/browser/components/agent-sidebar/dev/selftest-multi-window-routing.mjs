@@ -58,8 +58,8 @@ assert.match(history, /onClick=\{\(\) => openThread\(t\.id\)\}/);
 const historyDeletion = section("async function deleteThread", "function onKeyDown");
 assert.match(
   historyDeletion,
-  /deleteOwnedThread\([\s\S]*?!deletingCurrent,[\s\S]*?deletingCurrent,[\s\S]*?\)/,
-  "当前删除必须验证既有 reservation，非当前删除仍使用临时 claim",
+  /deleteThreadForSelection\(conversations, session, id, reservationRef\.current, currentSelection\)/,
+  "React 删除入口必须统一经过可动态验证的生产路由 helper",
 );
 
 const hasThreadReservation = sourceFunction("hasThreadReservation", "function");
@@ -151,6 +151,15 @@ const deleteOwnedThread = sourceFunction(
     releaseOwnedThread,
   },
 );
+const deleteThreadForSelection = sourceFunction(
+  "deleteThreadForSelection",
+  "async function",
+  {
+    createReservationClaim: createClaim,
+    reservationForSelection,
+    deleteOwnedThread,
+  },
+);
 assert.equal(
   (source.match(/conversations\.createThread\s*\(/g) || []).length,
   1,
@@ -173,8 +182,12 @@ function makeClaimSession() {
       return generation;
     },
     acquireThread(ids, owner, generation, claim) {
-      if (generations.get(owner) !== generation || !Number.isInteger(claim) || claim < claims.get(owner)) {
+      if (generations.get(owner) !== generation || !Number.isInteger(claim) || claim <= 0 ||
+          claim < claims.get(owner)) {
         return null;
+      }
+      if (claim > claims.get(owner)) {
+        claims.set(owner, claim);
       }
       for (const id of ids || []) {
         const held = reservations.get(id);
@@ -182,9 +195,6 @@ function makeClaimSession() {
           continue;
         }
         reservations.set(id, { owner, generation, claim });
-        if (claim > claims.get(owner)) {
-          claims.set(owner, claim);
-        }
         return id;
       }
       return null;
@@ -828,9 +838,9 @@ function makeClaimSession() {
   const owner = createReservationOwner(session, {});
   const currentClaim = createClaim(owner);
   assert.equal(acquireOwnedThread(session, ["current"], currentClaim), "current");
-  const deleteClaim = createClaim(owner);
+  const currentSelection = { id: "current", claim: currentClaim.claim };
   let deleted = false;
-  await deleteOwnedThread(
+  await deleteThreadForSelection(
     {
       async deleteThread(id, canDelete) {
         assert.equal(id, "history");
@@ -840,8 +850,8 @@ function makeClaimSession() {
     },
     session,
     "history",
-    deleteClaim,
-    true,
+    owner,
+    currentSelection,
   );
   assert.equal(deleted, true, "非当前历史必须由最新 claim 完成受控删除");
   assert.equal(session.reservations.has("history"), false, "附属删除结束后必须释放目标 reservation");
@@ -851,7 +861,7 @@ function makeClaimSession() {
     "附属删除发布更高 claim 后，当前 thread 的旧 reservation 仍可续约",
   );
   let currentDeleted = false;
-  await deleteOwnedThread(
+  await deleteThreadForSelection(
     {
       async deleteThread(id, canDelete) {
         assert.equal(id, "current");
@@ -861,12 +871,47 @@ function makeClaimSession() {
     },
     session,
     "current",
-    currentClaim,
-    false,
-    true,
+    owner,
+    currentSelection,
   );
   assert.equal(currentDeleted, true, "附属删除后仍必须能删除自己持有的当前 thread");
   assert.equal(session.reservations.has("current"), false, "当前 thread 删除成功后必须释放既有 reservation");
+
+  const failureSession = makeClaimSession();
+  const failureOwner = createReservationOwner(failureSession, {});
+  const failureCurrentClaim = createClaim(failureOwner);
+  assert.equal(acquireOwnedThread(failureSession, ["current"], failureCurrentClaim), "current");
+  const failureSelection = { id: "current", claim: failureCurrentClaim.claim };
+  await assert.rejects(
+    () => deleteThreadForSelection(
+      { async deleteThread() { throw new Error("history delete failed"); } },
+      failureSession,
+      "history",
+      failureOwner,
+      failureSelection,
+    ),
+    /history delete failed/,
+  );
+  assert.equal(
+    failureSession.reservations.has("history"),
+    false,
+    "非当前删除失败时必须释放临时 reservation",
+  );
+  await assert.rejects(
+    () => deleteThreadForSelection(
+      { async deleteThread() { throw new Error("current delete failed"); } },
+      failureSession,
+      "current",
+      failureOwner,
+      failureSelection,
+    ),
+    /current delete failed/,
+  );
+  assert.equal(
+    renewOwnedThread(failureSession, "current", failureCurrentClaim, () => {}),
+    true,
+    "当前删除失败时必须保留既有 reservation",
+  );
 }
 
 const reservationLifecycle = section(

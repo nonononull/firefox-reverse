@@ -604,6 +604,27 @@ async function deleteOwnedThread(
   }
 }
 
+async function deleteThreadForSelection(
+  conversations,
+  session,
+  threadId,
+  reservation,
+  currentSelection,
+) {
+  const deletingCurrent = threadId === currentSelection.id;
+  const deleteReservation = deletingCurrent
+    ? reservationForSelection(reservation, currentSelection)
+    : createReservationClaim(reservation);
+  await deleteOwnedThread(
+    conversations,
+    session,
+    threadId,
+    deleteReservation,
+    !deletingCurrent,
+    deletingCurrent,
+  );
+}
+
 export default function AgentPanel({ buildClient, conversations, store, router, runAgentTurn, session, isVisionModel, workspace, notes, toolNames = [], onOpenEnvironment, onOpenSettings, hidden = false }) {
   const [messages, setMessages] = useState([]); // 仅 user/assistant
   const [threads, setThreads] = useState([]); // 摘要列表
@@ -1705,18 +1726,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     );
     try {
       const currentSelection = captureSelectionIntent(selectionRef, selectionIntentRef);
-      const deletingCurrent = id === currentSelection.id;
-      const deleteReservation = deletingCurrent
-        ? reservationForSelection(reservationRef.current, currentSelection)
-        : createReservationClaim(reservationRef.current);
-      await deleteOwnedThread(
-        conversations,
-        session,
-        id,
-        deleteReservation,
-        !deletingCurrent,
-        deletingCurrent,
-      );
+      await deleteThreadForSelection(conversations, session, id, reservationRef.current, currentSelection);
       const list = await refreshThreads();
       if (!sameSelectionIntent(selectionRef, selectionIntentRef, deleteSelection)) {
         return;
