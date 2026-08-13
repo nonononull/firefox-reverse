@@ -102,3 +102,13 @@
 - 修复：实现 checkpoint `4074d00ceb4606e3d22ae1294ba53cb8302cdf68`、tree `47b165892ee4db71c3e61801efd32fd6359c1d09` 为内部删除 helper 增加 `alreadyOwned` 路径。当前删除以 `renewThread()` 验证精确 reservation，非当前删除继续以最新 claim 调用 `acquireThread()`；成功后均释放目标，当前删除失败仍保留既有 reservation。
 - 验证：该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.6kb`、13/13 Node 自测文件、reservation 52/52、ConversationStore 32/32、multi-window routing 动态合同、branding 22 文件和 `git diff --check` 全部通过。
 - 边界：仅修改 `AgentPanel.jsx` 与 `selftest-multi-window-routing.mjs`；未修改 reservation 公共 API、`AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁，未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。
+
+## 2026-08-14：失败的高 claim 也必须推进 owner 水位
+
+- 取证时间：`2026-08-14 05:50:15 +08:00`。
+- 现象：fresh reviewer `3f372874-23a5-4d38-966f-3d157f7c25a5` 对 `e84e4b18ac250614979876b68e810a6fc2845d16`、tree `5affad19645ed32eafbaee52ad271785a22e5a32` 返回 `REQUEST_CHANGES`（P1=1、P2=2）。高 claim 只有认领成功才推进 owner+generation 水位，因此“claim 1 持有 A -> claim 2 认领被其它 owner 占用的 B 失败 -> 迟到 claim 1 认领空 C”仍会成功；reviewer 同时要求生产删除路由具备动态语义证据，并指出最终审查台账遗漏两次 shutdown/no-verdict 尝试。
+- 红测：`selftest-thread-reservation.mjs` 新增“高 claim 认领被占目标失败后，旧 claim 不得认领空目标、但仍可续约自己原有 reservation”的确定性交错；`selftest-multi-window-routing.mjs` 直接提取并执行生产 `deleteThreadForSelection()`，覆盖当前与非当前删除的成功、失败、释放和保留语义，React 入口只保留对该 helper 的单一调用。
+- 修复：实现提交 `4f52a4fdf45481da908e2c467a80ec16c68d32f2`、tree `d12dd5bc6829ac7172bb6644c5558caba8e7c7cb` 在 `acquireThread()` 校验 generation/claim 后、扫描候选前推进 owner 水位；认领失败不再允许低 claim 跨目标复活。生产删除逻辑收敛到 `deleteThreadForSelection()`，没有修改公共 reservation API、`AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁。
+- 验证：该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.6kb`、13/13 Node 自测文件、thread reservation 57/57、ConversationStore 32/32、multi-window routing 生产删除 helper 动态合同、branding 22 文件和 `git diff --check` 全部通过。
+- 审查台账：`f92d93752aecbec3edf33bce5486fe8d95935371` 的 reviewer 因 provider 503 结束，无 findings/verdict；reviewer `019ffcda-2437-7791-a95a-54cab6ca68a8` 与 `019ffcee-5f0d-7892-977e-eced1beb2c71` 均因长期无输出被 shutdown，无 findings/verdict。三次无 verdict 均不是批准，也不得覆盖任何 `REQUEST_CHANGES`。
+- 边界：没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 pull-request workflow，上述证据是实现快照本地门禁，不是 CI。治理提交后仍需 fresh exact-head reviewer 返回 `APPROVE P0=0 P1=0 P2=0` 才可合并。
