@@ -130,3 +130,12 @@
 - 修复：`f5f632978f4764a62c1bc1ae2ba6ff591a165783` 为初始化增加运行态候选门禁并让 `appendMessage()` 条件回滚本次消息、自动标题和更新时间；`228c00b4aec7702748711de91d3927cc46656aa4`、tree `864c11a6e5faac2afc4621de21f4ab16cc9c7973` 将运行态门禁收敛到 reservation 认领线性化点：只有已有同 owner reservation 的运行 thread 可由原窗口重挂载，外部无 reservation 或其它 owner 均失败关闭。
 - 验证：在 `228c00b4aec7702748711de91d3927cc46656aa4` 上无重试执行 `npm ci` 和完整 PowerShell 门禁，sidebar bundle `220.9kb`、13/13 Node 自测文件、thread reservation `60/60`、ConversationStore `48/48`、multi-window routing、branding 22 文件和 `git diff --check` 全部通过。
 - 兼容性：`ConversationStore` 的 director 三参数 create 及无 guard mode/workspace/message 旧签名继续兼容；UI reservation API 已升级为 `beginThreadReservation()` 加 `owner + generation + claim`，旧两参数调用故意失败关闭。`AgentSession.run()`、`callTool()`、sessions map 与 raw-tool 锁未修改。
+
+## 2026-08-14：运行任务卸载后无法重挂载，metadata 保存失败仍会夹带
+
+- 取证时间：`2026-08-14 08:57:28 +08:00`。
+- 现象：fresh reviewer `d5261c5b-1250-4855-99e4-e29f1185d0c0` 对 `78464614385e6599dbdbafe3945938c5d2341c54`、tree `70bf4311419e30c21852bc989e45fe3509f649be` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。运行中的 thread 在 pagehide/unmount 时会清空 reservation，原稳定 owner 重挂载也被运行态门禁拒绝；`setThreadEnvironment()`、`setThreadModelStrategy()` 与 `renameThread()` 保存失败后未回滚 `_mem`；结构化 reviewer 台账还漏记了 `ac55b198... REQUEST_CHANGES`。另一次 reviewer `51befd7e-f709-449c-b919-72614292f4be` 未显式指定 fork，错误查询 upstream PR #2 后按身份闸门停止且未读源码，其流程性拒绝不作为实现 finding。
+- 红测：生产 reservation 方法动态用例在旧实现稳定失败 3 项，覆盖运行中精确 release、同 owner 重挂载、其他 owner 在任务结束前及 TTL 内不得接管；Store 故障注入在旧实现稳定失败 9 项，逐一证明 environment/model/title 值、`updatedAt` 与后续成功快照都会被污染。
+- 修复：实现提交 `f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a`、tree `f68a14b1831444f2e163fdaa216b54f48a76806e` 让运行中的精确 release 保留不续时 owner 锚点，空闲 thread 仍立即释放；同 owner 新 generation 可重挂载，其他 owner 需等任务结束且既有 8 秒 TTL 过期。三类 Store setter 复用 mode/workspace 的 `previous + mutationUpdatedAt + 条件回滚` 语义。
+- 验证：无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `220.9kb`、13/13 Node 自测文件、thread reservation `67/67`、ConversationStore `60/60`、multi-window routing 合同、branding 22 文件和 `git diff --check` 全部通过。
+- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库无 PR workflow，本地门禁不是 CI，治理提交后仍需 fresh exact-head reviewer 返回 0/0/0。

@@ -195,6 +195,7 @@ change_contract:
   historical_state_refs:
     - v0.22.4 old route calls openThreadRef.current(target.id)
     - red contract test fails on the old route and passes on the current worktree
+    - reviewer git:ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e REQUEST_CHANGES
     - reviewer git:42ff472263174d7cba38b38577d4a8312bd4a2d5 REQUEST_CHANGES P1=2 P2=3
     - reviewer git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39 REQUEST_CHANGES P1=3 P2=1
     - reviewer git:97252db1295e9209d8d2fa88d85c1d736214f227 REQUEST_CHANGES P1=1 P2=4
@@ -202,7 +203,9 @@ change_contract:
     - reviewer git:e84e4b18ac250614979876b68e810a6fc2845d16 REQUEST_CHANGES P1=1 P2=2
     - reviewer git:bc639e34389331ebc950989e4b431160992b7f06 REQUEST_CHANGES P1=3 P2=1
     - reviewer git:98e080540b823327f3e52ceed2b821784d3fc7b6 REQUEST_CHANGES P1=2 P2=1
+    - reviewer git:78464614385e6599dbdbafe3945938c5d2341c54 REQUEST_CHANGES P1=2 P2=1
   stale_verdict_invalidation_refs:
+    - git:ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e reviewer verdict is failed historical evidence, not final approval
     - git:42ff472263174d7cba38b38577d4a8312bd4a2d5 reviewer verdict is failed historical evidence, not final approval
     - git:0937c0f43b78b8babd510563eaf4c8d8ddc49a39 reviewer verdict is failed historical evidence, not final approval
     - git:97252db1295e9209d8d2fa88d85c1d736214f227 reviewer verdict is failed historical evidence, not final approval
@@ -213,14 +216,16 @@ change_contract:
     - git:e84e4b18ac250614979876b68e810a6fc2845d16 reviewer verdict is failed historical evidence, not final approval
     - git:bc639e34389331ebc950989e4b431160992b7f06 reviewer verdict is failed historical evidence, not final approval
     - git:98e080540b823327f3e52ceed2b821784d3fc7b6 reviewer verdict is failed historical evidence, not final approval
-    - 2026-08-14 源码 checkpoint 门禁只属于 git:228c00b4aec7702748711de91d3927cc46656aa4；治理提交后必须对 final exact HEAD/tree 重新审查
+    - git:78464614385e6599dbdbafe3945938c5d2341c54 reviewer verdict is failed historical evidence, not final approval
+    - reviewer 51befd7e-f709-449c-b919-72614292f4be resolved PR against upstream, failed the identity gate, and stopped before source review; its procedural REQUEST_CHANGES is not an implementation verdict
+    - 2026-08-14 源码 checkpoint 门禁只属于 git:f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a；治理提交后必须对 final exact HEAD/tree 重新审查
   regression_checks:
     - surface: external-running-routing
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
       expected_result: no external openThread route; banner calls newChat; initialization rejects external running threads but preserves same-owner running remount
     - surface: reservation-and-heartbeat
       command_or_evidence_ref: node selftest-thread-reservation.mjs
-      expected_result: generation fence、owner+generation 最高 claim、运行态 owner 门禁、失败尝试发布水位、附属目标、旧 reservation 清理、心跳与 TTL 全部通过
+      expected_result: generation fence、owner+generation 最高 claim、运行态 owner 门禁、运行中 release 锚点、失败尝试发布水位、附属目标、旧 reservation 清理、心跳与 TTL 全部通过
     - surface: sidebar-and-agent-tooling
       command_or_evidence_ref: build.md#完整轻量门禁
       expected_result: bundle, 13 selftests and branding all pass
@@ -232,7 +237,7 @@ change_contract:
       expected_result: missing guard and ownership loss after load both fail closed without deleting the thread; production deleteThreadForSelection helper dynamically proves non-current deletion publishes the newest claim while current deletion renews its existing exact claim; mode/workspace save failures roll back; run throw/not-running roll back user message
     - surface: director-compatibility-and-store-serialization
       command_or_evidence_ref: node selftest-conversations.mjs
-      expected_result: director legacy signatures remain callable; cold start publishes one load promise; failed user append or mode save cannot contaminate a later successful snapshot
+      expected_result: director legacy signatures remain callable; cold start publishes one load promise; failed user append, mode, workspace, environment, model, or title save cannot contaminate a later successful snapshot
     - surface: authoritative-send-configuration
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
       expected_result: digest-time configuration changes reject stale sends; default auto cannot overwrite a newer user mode intent; UI mode/workspace helpers always pass a live ownership guard
@@ -247,9 +252,9 @@ change_contract:
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: git:228c00b4aec7702748711de91d3927cc46656aa4-local-source-gate:2026-08-14T08:19:44+08:00
+        post_change_replay_ref: git:f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a-local-source-gate:2026-08-14T08:57:28+08:00
         expected_result: reservation suite and aggregate selftests pass
-        actual_result: PowerShell 完整链无重试通过 sidebar bundle 220.9kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 60/60、ConversationStore 48/48、外部运行门禁、同 owner 运行任务重挂载、director 旧签名、共享冷启动、失败 user append 回滚、串行 mutation、配置 intent 与生产删除 helper 动态合同通过
+        actual_result: PowerShell 完整链无重试通过 sidebar bundle 220.9kb、13/13 Node 自测文件和 branding 22 文件检查；reservation 67/67、ConversationStore 60/60、运行中 release 后同 owner 重挂载、任务结束 TTL 回收、metadata 保存失败回滚、外部运行门禁、director 旧签名、共享冷启动、串行 mutation、配置 intent 与生产删除 helper 动态合同通过
         owner_visible_status: passed
         regression_status: passed
     forbidden_ops_until_replay: []
@@ -280,16 +285,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: git:228c00b4aec7702748711de91d3927cc46656aa4-local-source-gate:2026-08-14T08:19:44+08:00-sidebar-and-13-selftests-pass
+    result_ref: git:f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a-local-source-gate:2026-08-14T08:57:28+08:00-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: git:228c00b4aec7702748711de91d3927cc46656aa4-local-source-gate:2026-08-14T08:19:44+08:00-bundle-220.9kb
+    result_ref: git:f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a-local-source-gate:2026-08-14T08:57:28+08:00-bundle-220.9kb
   review:
     command_ref: build.md#独立审查
-    result_ref: git:e84e4b18ac250614979876b68e810a6fc2845d16-request-changes-p1-1-p2-2; git:bc639e34389331ebc950989e4b431160992b7f06-request-changes-p1-3-p2-1-reviewer-019ffd25-55db-7473-aab5-a42ac5c9b963; git:98e080540b823327f3e52ceed2b821784d3fc7b6-request-changes-p1-2-p2-1-reviewer-019ffd82-1326-7e42-b2c0-2355aecf81ad; git:f92d93752aecbec3edf33bce5486fe8d95935371-provider-503-no-verdict; reviewers:019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71-shutdown-no-verdict; fresh final exact-head rereview pending
+    result_ref: git:ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e-request-changes; git:e84e4b18ac250614979876b68e810a6fc2845d16-request-changes-p1-1-p2-2; git:bc639e34389331ebc950989e4b431160992b7f06-request-changes-p1-3-p2-1-reviewer-019ffd25-55db-7473-aab5-a42ac5c9b963; git:98e080540b823327f3e52ceed2b821784d3fc7b6-request-changes-p1-2-p2-1-reviewer-019ffd82-1326-7e42-b2c0-2355aecf81ad; git:78464614385e6599dbdbafe3945938c5d2341c54-request-changes-p1-2-p2-1-reviewer-d5261c5b-1250-4855-99e4-e29f1185d0c0; reviewer:51befd7e-f709-449c-b919-72614292f4be-upstream-pr-resolution-gate-failure-no-source-review; git:f92d93752aecbec3edf33bce5486fe8d95935371-provider-503-no-verdict; reviewers:019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71-shutdown-no-verdict; fresh final exact-head rereview pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: git:228c00b4aec7702748711de91d3927cc46656aa4-local-source-gate:2026-08-14T08:19:44+08:00-lockfile-ignored-bundle-and-12-file-boundary-pass
+    result_ref: git:f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a-local-source-gate:2026-08-14T08:57:28+08:00-lockfile-ignored-bundle-and-12-file-boundary-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -314,3 +319,4 @@ execution_evidence:
 - `2026-08-14 05:50:15 +08:00`：fresh reviewer `3f372874-23a5-4d38-966f-3d157f7c25a5` 对治理 HEAD `e84e4b18ac250614979876b68e810a6fc2845d16`、tree `5affad19645ed32eafbaee52ad271785a22e5a32` 返回 `REQUEST_CHANGES`（P1=1、P2=2），指出高 claim 认领失败未推进 owner 水位、生产删除接线动态证据不足及两次 shutdown/no-verdict 尝试漏记。实现提交 `4f52a4fdf45481da908e2c467a80ec16c68d32f2`、tree `d12dd5bc6829ac7172bb6644c5558caba8e7c7cb` 将有效 claim 在候选扫描前发布，并抽取生产 `deleteThreadForSelection()` 供 React 入口与动态测试共用；无重试门禁通过 bundle `218.6kb`、13/13、reservation 57/57、ConversationStore 32/32、生产删除 helper 动态合同、branding 22 与 `git diff --check`。reviewer `019ffcda-2437-7791-a95a-54cab6ca68a8`、`019ffcee-5f0d-7892-977e-eced1beb2c71` 均因长期无输出被 shutdown 且无 verdict；最终治理 snapshot 与 fresh exact-head review 仍待完成。
 - `2026-08-14 07:31:10 +08:00`：fresh reviewer `019ffd25-55db-7473-aab5-a42ac5c9b963` 对治理 HEAD `bc639e34389331ebc950989e4b431160992b7f06`、tree `30452ce51ddea0474665c745ea3bd386f0b6c405` 返回 `REQUEST_CHANGES`（P1=3、P2=1），指出 director 旧签名兼容、冷启动 `_load()` 覆盖、digest 期间配置漂移及失败 mutation 夹带。实现提交 `c7672eb319c81fb06f605e9a4ec1ef642be59e7a` 增加共享 load Promise、串行 mutation queue、显式 guard 兼容层与权威发送配置；测试加固提交 `69a514e76550adc8d563f739c0c9f132bb3aeb88`、tree `9c0396e2d7d6fa100b7fea8b6ad58b4f1920d541` 动态验证默认/用户 mode intent、UI guard 和缺失 thread。无重试门禁通过 bundle `220.4kb`、13/13、reservation 57/57、ConversationStore 42/42、multi-window routing、branding 22 与 `git diff --check`；治理 snapshot 与 fresh final exact-head review 仍待完成。
 - `2026-08-14 08:19:44 +08:00`：fresh reviewer `019ffd82-1326-7e42-b2c0-2355aecf81ad` 对 `98e080540b823327f3e52ceed2b821784d3fc7b6`、tree `6f8eab856a10030cc66eb2ec442c5225fb5e214c` 返回 `REQUEST_CHANGES`（P1=2、P2=1），指出初始化可接管无 reservation 的外部运行 thread、user append 保存失败会留在 `_mem` 并被夹带，以及 reservation API 治理表述失真。实现 `228c00b4aec7702748711de91d3927cc46656aa4`、tree `864c11a6e5faac2afc4621de21f4ab16cc9c7973` 以运行态 owner 门禁允许原 owner 重挂载续看、拒绝外部/其它 owner，并在 user append 保存失败时条件回滚。无重试门禁通过 bundle `220.9kb`、13/13、reservation 60/60、ConversationStore 48/48、multi-window routing、branding 22 与 `git diff --check`。治理明确 reservation API 已升级，fresh final exact-head review 仍待执行。
+- `2026-08-14 08:57:28 +08:00`：reviewer `d5261c5b-1250-4855-99e4-e29f1185d0c0` 对 `78464614385e6599dbdbafe3945938c5d2341c54`、tree `70bf4311419e30c21852bc989e45fe3509f649be` 返回 `REQUEST_CHANGES`（P1=2、P2=1）：运行 thread 正常卸载会清空 reservation，导致原 owner 无法重挂载；environment/model/title 保存失败会留在 `_mem` 并被后续保存夹带；结构化 reviewer 台账漏记 `ac55b198...`。reviewer `51befd7e-f709-449c-b919-72614292f4be` 因未显式指定 fork 而在 upstream 查询 PR #2 失败，按入口闸门停止且未读源码，其流程性拒绝不作为实现 finding。红测在旧实现分别稳定失败 reservation 3 项与 Store 9 项；实现 `f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a`、tree `f68a14b1831444f2e163fdaa216b54f48a76806e` 保留运行中不续时 owner 锚点，并为三类 metadata mutation 增加条件回滚。无重试完整门禁通过 bundle `220.9kb`、13/13、reservation 67/67、ConversationStore 60/60、multi-window routing、branding 22 与 `git diff --check`；fresh final exact-head review 仍待治理提交后执行。
