@@ -484,9 +484,7 @@ async function acquireIdleExistingThread(
       !conversations || typeof conversations.getThread !== "function") {
     throw new Error("多窗口会话预留或运行状态接口不完整，已拒绝加载历史会话。");
   }
-  if (session.isRunning(threadId)) {
-    return null;
-  }
+  const wasRunning = session.isRunning(threadId);
   const claim = createReservationClaim(reservation);
   const acquired = claim ? acquireOwnedThread(session, [threadId], claim) : null;
   if (acquired !== threadId) {
@@ -497,16 +495,16 @@ async function acquireIdleExistingThread(
   }
   let keep = false;
   try {
-    if (session.isRunning(threadId)) {
+    if (!wasRunning && session.isRunning(threadId)) {
       return null;
     }
     const thread = await conversations.getThread(threadId);
-    if (!thread || canKeep() !== true || session.isRunning(threadId) ||
+    if (!thread || canKeep() !== true || (!wasRunning && session.isRunning(threadId)) ||
         !renewOwnedThread(session, threadId, claim, () => {})) {
       return null;
     }
     keep = true;
-    return { thread, reservation: claim };
+    return { thread, reservation: claim, resumedRunning: wasRunning };
   } finally {
     if (!keep) {
       releaseOwnedThread(session, threadId, claim);
@@ -858,7 +856,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         pendingOwnedId = existing?.thread?.id || null;
         let t = existing?.thread || null;
         // acquire helper 返回后会跨一个微任务；绑定前再复核一次，闭合此间启动的外部任务。
-        if (t && session.isRunning(t.id)) {
+        if (t && !existing.resumedRunning && session.isRunning(t.id)) {
           releaseOwnedThread(session, t.id, pendingReservation);
           pendingOwnedId = null;
           pendingReservation = null;

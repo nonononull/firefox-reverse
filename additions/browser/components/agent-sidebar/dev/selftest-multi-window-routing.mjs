@@ -220,6 +220,9 @@ function makeClaimSession() {
       }
       for (const id of ids || []) {
         const held = reservations.get(id);
+        if (running.has(id) && held?.owner !== owner) {
+          continue;
+        }
         if (held?.owner !== owner && held) {
           continue;
         }
@@ -292,6 +295,23 @@ function makeClaimSession() {
   assert.equal(alreadyRunning, null, "初始化不得认领已经运行的外部 thread");
   assert.equal(readCount, 0, "已运行候选不得进入历史读取");
   assert.equal(session.reservations.has("external-running"), false);
+
+  const host = {};
+  const resumeSession = makeClaimSession();
+  const oldMount = createReservationOwner(resumeSession, host);
+  const oldClaim = createClaim(oldMount);
+  assert.equal(acquireOwnedThread(resumeSession, ["same-window-running"], oldClaim), "same-window-running");
+  resumeSession.run("same-window-running", {});
+  const newMount = createReservationOwner(resumeSession, host);
+  const resumed = await acquireIdleExistingThread(
+    { async getThread() { return { id: "same-window-running" }; } },
+    resumeSession,
+    "same-window-running",
+    newMount,
+    () => true,
+  );
+  assert.equal(resumed?.thread?.id, "same-window-running", "原窗口重挂载必须续看自己运行中的 thread");
+  assert.equal(resumed?.resumedRunning, true);
 
   const racedSession = makeClaimSession();
   const racedOwner = createReservationOwner(racedSession, {});
