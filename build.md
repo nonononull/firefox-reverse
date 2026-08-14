@@ -126,8 +126,8 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 13:25:44 +08:00`。
-- 实现提交：`d31d6d29ec112e8fe5d85737bb07cc679db1c0f3`，tree `d1bfb146f53d9b596430dd9b1051898a0acd06f2`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `78/78`，ConversationStore 为 `112/112`，multi-window routing 合同为 `PASS`，branding 为 22 文件，最终标记为 `FULL_GATE_OK`。
-- 组合动态测试证明运行中的同 owner 锚点必须仍在 TTL 内，过期锚点不能接管后来启动的 external run；guarded append 在 `session.run()` 前持久化 `committed` journal，sidecar 清理失败后 fresh Store 仍保留已提交用户消息；recovery snapshot 拒绝畸形 `role/content/steps`；删除在 sidecar 清理后再次复核 ownership；迟到创建清理复用 runEpoch 删除闸门并保留已启动 thread。
-- 该证据只绑定实现快照；治理提交后的 fresh exact-head 独立审查仍是合并硬门，仓库无 pull-request CI。
+- 取证时间：`2026-08-14 14:36:42 +08:00`。
+- 实现提交：`09e5b77549099f46855fbd406e51e248ea630a89`，tree `d1574650e8a61d1ba272c19d840f3f141630e513`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `80/80`，ConversationStore 为 `146/146`，multi-window routing 合同为 `PASS`，branding 为 22 文件，最终标记为 `FULL_GATE_OK`。
+- 组合动态测试证明过期 reservation 不能被迟到 heartbeat 续活；普通 `getThread()` / `listThreads()` 与 mutation 共用串行队列，只读取已提交或已回滚状态；`committed -> rollback` journal 首次改写失败后仍恢复内存、canonical 与 fresh Store；recovery snapshot 拒绝 UI 实际消费字段中的畸形 step、图片、截图计数、workspace、mode、environment 和 model strategy。
+- 该证据只绑定 exact implementation SHA；后续治理提交不得改动源码，fresh exact-head 独立审查仍是合并硬门。仓库无 pull-request CI，本地门禁不记为 CI。

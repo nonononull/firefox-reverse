@@ -207,3 +207,12 @@
 - 修复：实现提交 `d31d6d29ec112e8fe5d85737bb07cc679db1c0f3`、tree `d1bfb146f53d9b596430dd9b1051898a0acd06f2` 要求 running remount 的同 owner 锚点仍在 TTL 内；recovery record 增加兼容旧 sidecar 的 `rollback/committed` phase，并在 `onCommit/session.run` 前持久化 committed snapshot；删除在 committed 写入、sidecar 清理后都重新验权；迟到创建清理复用 runEpoch 删除闸门；message 校验下钻到非空 role、字符串 content 和对象 steps。
 - 验证：无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `222.4kb`、13/13 Node 自测文件、thread reservation `78/78`、ConversationStore `112/112`、multi-window routing `PASS`、branding 22 文件、lockfile SHA-256 不变及 `git diff --check` 全部通过，最终标记 `FULL_GATE_OK`。
 - 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁、director 兼容签名或 owner-scope；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库仍为 `no-PR-CI`，治理提交后的 fresh exact-head reviewer 仍是合并硬门。
+
+## 2026-08-14：迟到 heartbeat、provisional read 与 rollback journal 故障
+
+- 取证时间：`2026-08-14 14:36:42 +08:00`。
+- 现象：fresh reviewer `34cc68e3-c865-4af2-8536-f32b6b43ecb8` 对治理 HEAD `606b94c5c0d80803acae5c3b56215eb4fd528667`、tree `fae9eea498cfe7e45cf9ad9c7c4a4423f2115e08` 返回 `REQUEST_CHANGES`（P1=3、P2=1）。`renewThread()` 未拒绝超过 TTL 的精确旧 reservation；`committed -> rollback` journal 改写失败会在恢复内存与 canonical 前退出；普通读取未加入 mutation 队列，可观察随后回滚的 provisional `_mem`；recovery 深层校验未覆盖 UI 实际使用的 step 和 thread 字段。
+- 红测：reservation 自测让旧锚点超过 TTL 后直接调用迟到 heartbeat；ConversationStore 故障注入分别覆盖 append/deletion 的首次 rollback journal 改写失败、保存阻塞期间并发 `getThread()` / `listThreads()`，以及畸形 `images`、`shot`、tool metadata、workspace、mode、environment 和 model strategy。旧实现稳定暴露 reviewer 反例。
+- 修复：实现提交 `09e5b77549099f46855fbd406e51e248ea630a89`、tree `d1574650e8a61d1ba272c19d840f3f141630e513` 让过期 heartbeat 失败关闭；读取与 mutation 复用同一串行队列；首次 rollback journal 改写失败后先恢复内存，再重新建立 rollback recovery、恢复 canonical 并清理责任；snapshot 校验与 `AgentPanel` 的真实消费结构对齐。
+- 验证：exact implementation SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `222.4kb`、13/13 Node 自测文件、thread reservation `80/80`、ConversationStore `146/146`、multi-window routing `PASS`、branding 22 文件、lockfile SHA-256 不变及 `git diff --check` 全部通过，最终标记 `FULL_GATE_OK`。
+- 边界：该批只修改 `AgentSession` reservation fence、`ConversationStore` 和三份自测；未修改 `AgentPanel`、`AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁、director 兼容签名或 owner-scope。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库仍为 `no-PR-CI`，本地门禁不是 CI，fresh final exact-head reviewer 仍是合并硬门。
