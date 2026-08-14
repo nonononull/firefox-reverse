@@ -175,12 +175,14 @@ const prepareOwnedThreadRunConfig = sourceFunction(
   { readOwnedThreadRunConfig },
 );
 const restoreUnsentInput = sourceFunction("restoreUnsentInput", "function");
+const currentThreadRunEpoch = sourceFunction("currentThreadRunEpoch", "function");
 const deleteOwnedThread = sourceFunction(
   "deleteOwnedThread",
   "async function",
   {
     hasThreadReservation,
     acquireOwnedThread,
+    currentThreadRunEpoch,
     createReservationClaim: createClaim,
     renewOwnedThread,
     releaseOwnedThread,
@@ -206,6 +208,7 @@ function makeClaimSession() {
   const claims = new Map();
   const reservations = new Map();
   const running = new Set();
+  const runEpochs = new Map();
   const runCalls = [];
   return {
     reservations,
@@ -256,9 +259,19 @@ function makeClaimSession() {
     isRunning(id) {
       return running.has(id);
     },
+    getState(id) {
+      return {
+        running: running.has(id),
+        runEpoch: runEpochs.get(id) || 0,
+      };
+    },
     run(id, options) {
+      runEpochs.set(id, (runEpochs.get(id) || 0) + 1);
       running.add(id);
       runCalls.push({ id, options });
+    },
+    finishRun(id) {
+      running.delete(id);
     },
   };
 }
@@ -463,6 +476,7 @@ function makeClaimSession() {
   const session = {
     beginThreadReservation: () => 1,
     isRunning: () => running,
+    getState: () => ({ runEpoch: 0 }),
     acquireThread(_ids, _owner, _generation, claim) {
       acquireCount += 1;
       assert.ok(Number.isInteger(claim));
@@ -620,6 +634,44 @@ function makeClaimSession() {
   assert.equal((await store.getThread(thread.id))?.id, thread.id, "删除竞态必须恢复历史 thread");
   assert.equal(deleteSaveCount, 2, "删除最终失权后必须持久化恢复快照");
   assert.equal(deleteSnapshots.at(-1)?.threads[0]?.id, thread.id, "恢复快照必须包含运行中的 thread");
+}
+
+{
+  const store = new ConversationStore({ memoryOnly: true });
+  const thread = await store.createThread(undefined, null, null, () => true);
+  const session = makeClaimSession();
+  const owner = createReservationOwner(session, {});
+  let releaseDeleteSave;
+  let signalDeleteSave;
+  const deleteSaveStarted = new Promise(resolve => { signalDeleteSave = resolve; });
+  const deleteSaveGate = new Promise(resolve => { releaseDeleteSave = resolve; });
+  let deleteSaveCount = 0;
+  store._save = async () => {
+    deleteSaveCount += 1;
+    if (deleteSaveCount === 1) {
+      signalDeleteSave();
+      await deleteSaveGate;
+    }
+  };
+  const deleting = deleteOwnedThread(
+    store,
+    session,
+    thread.id,
+    createClaim(owner),
+    true,
+    false,
+  );
+  await deleteSaveStarted;
+  session.run(thread.id, {});
+  session.finishRun(thread.id);
+  releaseDeleteSave();
+  await assert.rejects(
+    deleting,
+    /deletion authorization lost/,
+    "删除保存期间快速结束的 external run 仍必须由 run epoch 检出",
+  );
+  assert.equal((await store.getThread(thread.id))?.id, thread.id, "快速 external run 后必须恢复历史 thread");
+  assert.equal(deleteSaveCount, 2, "快速 external run 也必须持久化恢复快照");
 }
 
 {

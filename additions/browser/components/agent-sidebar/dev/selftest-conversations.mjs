@@ -1,6 +1,7 @@
 /* dev/selftest-conversations.mjs — ConversationStore（内存 backend）逻辑自测。
  *   node dev/selftest-conversations.mjs
  */
+import assert from "node:assert/strict";
 import { ConversationStore } from "../modules/ConversationStore.sys.mjs";
 
 let pass = 0, fail = 0;
@@ -47,12 +48,16 @@ let releaseColdRead;
 const coldReadGate = new Promise(resolve => { releaseColdRead = resolve; });
 let coldReadCount = 0;
 globalThis.IOUtils = {
+  async exists() {
+    return false;
+  },
   async readJSON() {
     coldReadCount += 1;
     await coldReadGate;
     return { threads: [] };
   },
   async writeJSON() {},
+  async remove() {},
 };
 try {
   const coldStore = new ConversationStore({ memoryOnly: false, path: "cold-conversations.json" });
@@ -73,6 +78,90 @@ try {
     delete globalThis.IOUtils;
   } else {
     globalThis.IOUtils = previousIOUtils;
+  }
+}
+
+// rollback save 失败后，恢复责任必须落到磁盘 sidecar；fresh Store 不得接受 provisional 主文件。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const files = new Map();
+  const clone = value => JSON.parse(JSON.stringify(value));
+  globalThis.IOUtils = {
+    async exists(path) {
+      return files.has(path);
+    },
+    async readJSON(path) {
+      if (!files.has(path)) {
+        throw new Error("file not found: " + path);
+      }
+      return clone(files.get(path));
+    },
+    async writeJSON(path, value) {
+      files.set(path, clone(value));
+    },
+    async remove(path) {
+      files.delete(path);
+    },
+  };
+  try {
+    const appendPath = "persistent-append-conversations.json";
+    const appendStore = new ConversationStore({ memoryOnly: false, path: appendPath });
+    const appendThread = await appendStore.createThread(undefined, null, null, () => true);
+    const appendSave = appendStore._save.bind(appendStore);
+    let appendOwned = true;
+    let appendSaveCount = 0;
+    appendStore._save = async () => {
+      appendSaveCount += 1;
+      if (appendSaveCount === 1) {
+        await appendSave();
+        appendOwned = false;
+        return;
+      }
+      throw new Error("append canonical rollback unavailable");
+    };
+    await assert.rejects(
+      appendStore.appendMessage(
+        appendThread.id,
+        { role: "user", content: "不得跨重载复活" },
+        () => appendOwned,
+        () => {},
+      ),
+      /append rollback save failed/,
+    );
+    const freshAppendStore = new ConversationStore({ memoryOnly: false, path: appendPath });
+    const recoveredAppend = await freshAppendStore.getThread(appendThread.id);
+    ok(recoveredAppend?.messages.length === 0, "fresh Store 从 durable recovery 恢复未提交的 append");
+    ok(!files.has(appendPath + ".recovery"), "append 恢复成功后清理 durable recovery sidecar");
+
+    const deletePath = "persistent-delete-conversations.json";
+    const deleteStore = new ConversationStore({ memoryOnly: false, path: deletePath });
+    const deleteThread = await deleteStore.createThread(undefined, null, null, () => true);
+    const deleteSave = deleteStore._save.bind(deleteStore);
+    let deleteOwned = true;
+    let deleteSaveCount = 0;
+    deleteStore._save = async () => {
+      deleteSaveCount += 1;
+      if (deleteSaveCount === 1) {
+        await deleteSave();
+        deleteOwned = false;
+        return;
+      }
+      throw new Error("delete canonical rollback unavailable");
+    };
+    await assert.rejects(
+      deleteStore.deleteThread(deleteThread.id, () => deleteOwned),
+      /deletion rollback save failed/,
+    );
+    const freshDeleteStore = new ConversationStore({ memoryOnly: false, path: deletePath });
+    const recoveredDelete = await freshDeleteStore.getThread(deleteThread.id);
+    ok(recoveredDelete?.id === deleteThread.id, "fresh Store 从 durable recovery 恢复未提交的 deletion");
+    ok(!files.has(deletePath + ".recovery"), "deletion 恢复成功后清理 durable recovery sidecar");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
   }
 }
 

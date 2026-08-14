@@ -107,6 +107,7 @@ export function getRunLog() {
 function newState() {
   return {
     running: false,
+    runEpoch: 0, // 每次实际进入 run 同步递增；删除等异步操作据此识别 start -> finish 瞬态。
     settled: false, // 本轮已结束（done/error）——UI 据此从 store 重载已落盘消息
     steps: [],
     _curText: -1,
@@ -168,6 +169,7 @@ function notifyThrottled(s) {
 function snapshot(s) {
   return {
     running: s.running,
+    runEpoch: s.runEpoch || 0,
     settled: s.settled,
     steps: s.steps.slice(),
     error: s.error,
@@ -415,6 +417,7 @@ export const agentSession = {
       return; // 已在跑，避免重入
     }
     // 重置本轮态
+    s.runEpoch = (s.runEpoch || 0) + 1;
     s.running = true;
     s.settled = false;
     s.steps = [];

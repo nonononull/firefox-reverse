@@ -36,6 +36,55 @@ function sourceMethod(name, dependencies) {
   assert.fail(`unterminated AgentSession method: ${name}`);
 }
 
+function sourceFunction(name, dependencies = {}) {
+  const marker = `function ${name}(`;
+  const from = sessionSource.indexOf(marker);
+  assert.notEqual(from, -1, `missing AgentSession function: ${name}`);
+  const bodyStart = sessionSource.indexOf("{", from + marker.length);
+  let depth = 0;
+  for (let i = bodyStart; i < sessionSource.length; i += 1) {
+    if (sessionSource[i] === "{") depth += 1;
+    if (sessionSource[i] === "}") depth -= 1;
+    if (depth === 0) {
+      const declaration = sessionSource.slice(from, i + 1);
+      return Function(...Object.keys(dependencies), `${declaration}; return ${name};`)(
+        ...Object.values(dependencies),
+      );
+    }
+  }
+  assert.fail(`unterminated AgentSession function: ${name}`);
+}
+
+function sourceAsyncMethod(name, dependencies = {}) {
+  const marker = `  async ${name}(`;
+  const from = sessionSource.indexOf(marker);
+  assert.notEqual(from, -1, `missing AgentSession async method: ${name}`);
+  const paramsStart = sessionSource.indexOf("(", from + marker.length - 1);
+  let paramsDepth = 0;
+  let bodyStart = -1;
+  for (let i = paramsStart; i < sessionSource.length; i += 1) {
+    if (sessionSource[i] === "(") paramsDepth += 1;
+    if (sessionSource[i] === ")") paramsDepth -= 1;
+    if (paramsDepth === 0) {
+      bodyStart = sessionSource.indexOf("{", i + 1);
+      break;
+    }
+  }
+  let bodyDepth = 0;
+  for (let i = bodyStart; i < sessionSource.length; i += 1) {
+    if (sessionSource[i] === "{") bodyDepth += 1;
+    if (sessionSource[i] === "}") bodyDepth -= 1;
+    if (bodyDepth === 0) {
+      const method = sessionSource.slice(from + 2, i + 1);
+      const declaration = "async function " + method.slice("async ".length);
+      return Function(...Object.keys(dependencies), `${declaration}; return ${name};`)(
+        ...Object.values(dependencies),
+      );
+    }
+  }
+  assert.fail(`unterminated AgentSession async method: ${name}`);
+}
+
 function makeStore() {
   const sessions = new Map();
   const ownerGenerations = new Map();
@@ -96,6 +145,47 @@ function check(name, got, want) {
   if (!ok) {
     fail++;
   }
+}
+
+// 0) 生产 run() 的 accepted-run epoch 即使在 provider 初始化阶段快速失败也必须留下单调痕迹。
+{
+  const runtimeStates = new Map();
+  const getOrInit = id => {
+    if (!runtimeStates.has(id)) {
+      runtimeStates.set(id, {
+        running: false,
+        runEpoch: 0,
+        settled: false,
+        steps: [],
+        _curText: -1,
+        _curThink: -1,
+        content: "",
+        error: null,
+        aborted: false,
+        abort: null,
+        pendingConfirm: null,
+        approveAll: false,
+        checkpointSeq: 0,
+        _notifyTimer: null,
+        _lastNotify: 0,
+      });
+    }
+    return runtimeStates.get(id);
+  };
+  const run = sourceAsyncMethod("run", {
+    _runLog: [],
+    getOrInit,
+    _clearTimeout() {},
+    notify() {},
+    buildClientFromStore() { throw new Error("provider setup failed"); },
+    configStore: {},
+  });
+  const snapshot = sourceFunction("snapshot");
+  const getState = sourceMethod("getState", { sessions: runtimeStates, snapshot });
+  const runtime = { run, getState, async _persist() {} };
+  await runtime.run.call(runtime, "quick-failure", {});
+  check("快速失败 run 仍递增 epoch", runtime.getState("quick-failure").runEpoch, 1);
+  check("快速失败 run 最终恢复 idle", runtime.getState("quick-failure").running, false);
 }
 
 // 1) 基本认领

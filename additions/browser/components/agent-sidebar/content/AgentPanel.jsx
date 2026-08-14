@@ -734,6 +734,17 @@ function restoreUnsentInput(current, unsent) {
   return unsent + "\n" + current;
 }
 
+function currentThreadRunEpoch(session, threadId) {
+  try {
+    const epoch = session && typeof session.getState === "function"
+      ? session.getState(threadId)?.runEpoch
+      : null;
+    return Number.isInteger(epoch) && epoch >= 0 ? epoch : null;
+  } catch {
+    return null;
+  }
+}
+
 async function deleteOwnedThread(
   conversations,
   session,
@@ -742,7 +753,8 @@ async function deleteOwnedThread(
   releaseOnFailure = false,
   alreadyOwned = false,
 ) {
-  if (!hasThreadReservation(session) || typeof session.isRunning !== "function") {
+  if (!hasThreadReservation(session) || typeof session.isRunning !== "function" ||
+      typeof session.getState !== "function") {
     throw new Error("多窗口会话预留或运行状态接口不完整，已拒绝删除历史会话。");
   }
   if (session.isRunning(threadId)) {
@@ -763,8 +775,12 @@ async function deleteOwnedThread(
       ? "该会话的窗口预留已失效，不能删除。"
       : "该会话已在另一个浏览器窗口打开，不能删除。");
   }
+  const deleteRunEpoch = currentThreadRunEpoch(session, threadId);
+  if (deleteRunEpoch === null) {
+    throw new Error("Agent 运行纪元接口不完整，已拒绝删除历史会话。");
+  }
   try {
-    if (session.isRunning(threadId)) {
+    if (session.isRunning(threadId) || currentThreadRunEpoch(session, threadId) !== deleteRunEpoch) {
       throw new Error("该会话正在运行，不能删除。");
     }
     if (!renewOwnedThread(session, threadId, deleteReservation, () => {})) {
@@ -773,6 +789,7 @@ async function deleteOwnedThread(
     await conversations.deleteThread(
       threadId,
       () => !session.isRunning(threadId) &&
+        currentThreadRunEpoch(session, threadId) === deleteRunEpoch &&
         renewOwnedThread(session, threadId, deleteReservation, () => {}),
     );
     deleted = true;

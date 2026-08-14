@@ -11,7 +11,16 @@
 
 const DIR_NAME = "firefox-reverse-agent";
 const FILE_NAME = "conversations.json";
+const RECOVERY_SUFFIX = ".recovery";
+const RECOVERY_SCHEMA_VERSION = 1;
 const NEW_TITLE = "新对话";
+
+function cloneConversationSnapshot(value) {
+  if (!value || !Array.isArray(value.threads)) {
+    throw new Error("conversation recovery snapshot is malformed");
+  }
+  return JSON.parse(JSON.stringify(value));
+}
 
 function requireAuthorization(guard, operation, id, value) {
   if (typeof guard !== "function") {
@@ -64,6 +73,69 @@ export class ConversationStore {
     return this._path;
   }
 
+  async _recoveryPath() {
+    return (await this._filePath()) + RECOVERY_SUFFIX;
+  }
+
+  async _readRecoverySnapshot() {
+    if (this._memoryOnly) {
+      return null;
+    }
+    const path = await this._recoveryPath();
+    if (!(await IOUtils.exists(path))) {
+      return null;
+    }
+    const record = await IOUtils.readJSON(path);
+    if (record?.schemaVersion !== RECOVERY_SCHEMA_VERSION) {
+      throw new Error("conversation recovery schema is unsupported");
+    }
+    return cloneConversationSnapshot(record.snapshot);
+  }
+
+  async _writeRecoverySnapshot() {
+    if (this._memoryOnly) {
+      return;
+    }
+    const path = await this._recoveryPath();
+    await IOUtils.writeJSON(
+      path,
+      {
+        schemaVersion: RECOVERY_SCHEMA_VERSION,
+        snapshot: cloneConversationSnapshot(this._mem),
+      },
+      { tmpPath: path + ".tmp" },
+    );
+  }
+
+  async _clearRecoverySnapshot() {
+    if (!this._memoryOnly) {
+      await IOUtils.remove(await this._recoveryPath(), { ignoreAbsent: true });
+    }
+    this._recoverySavePending = false;
+  }
+
+  async _persistRecoveredSnapshot() {
+    this._recoverySavePending = true;
+    let recoveryWriteError = null;
+    try {
+      await this._writeRecoverySnapshot();
+    } catch (e) {
+      recoveryWriteError = e;
+    }
+    try {
+      await this._save();
+    } catch (saveError) {
+      if (recoveryWriteError) {
+        throw new Error(
+          `conversation durable recovery and canonical rollback both failed: ${String(recoveryWriteError?.message || recoveryWriteError)}; ${String(saveError?.message || saveError)}`,
+          { cause: saveError },
+        );
+      }
+      throw saveError;
+    }
+    await this._clearRecoverySnapshot();
+  }
+
   async _load() {
     if (this._mem) {
       return this._mem;
@@ -74,6 +146,14 @@ export class ConversationStore {
     const loading = (async () => {
       if (this._memoryOnly) {
         return (this._mem = { threads: [] });
+      }
+      const recoverySnapshot = await this._readRecoverySnapshot();
+      if (recoverySnapshot) {
+        this._mem = recoverySnapshot;
+        this._recoverySavePending = true;
+        await this._save();
+        await this._clearRecoverySnapshot();
+        return this._mem;
       }
       try {
         const data = await IOUtils.readJSON(await this._filePath());
@@ -97,7 +177,7 @@ export class ConversationStore {
     const pending = this._mutationQueue.then(async () => {
       if (this._recoverySavePending) {
         await this._save();
-        this._recoverySavePending = false;
+        await this._clearRecoverySnapshot();
       }
       return operation();
     });
@@ -318,9 +398,8 @@ export class ConversationStore {
       } catch (e) {
         if (rollback()) {
           try {
-            await this._save();
+            await this._persistRecoveredSnapshot();
           } catch (rollbackError) {
-            this._recoverySavePending = true;
             throw new Error(
               `conversation append rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
               { cause: e },
@@ -378,9 +457,8 @@ export class ConversationStore {
           }
           if (deletionSaved) {
             try {
-              await this._save();
+              await this._persistRecoveredSnapshot();
             } catch (rollbackError) {
-              this._recoverySavePending = true;
               throw new Error(
                 `conversation deletion rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
                 { cause: e },
