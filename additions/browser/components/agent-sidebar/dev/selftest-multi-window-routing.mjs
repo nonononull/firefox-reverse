@@ -236,13 +236,15 @@ function makeClaimSession() {
       return generations.get(owner) === generation && held?.owner === owner &&
         held?.generation === generation && held?.claim === claim;
     },
-    releaseThread(id, owner, generation, claim) {
+    releaseThread(id, owner, generation, claim, abandonRunning = false) {
       const held = reservations.get(id);
       if (generations.get(owner) !== generation || held?.owner !== owner ||
           held?.generation !== generation || held?.claim !== claim) {
         return false;
       }
-      reservations.delete(id);
+      if (!running.has(id) || abandonRunning === true) {
+        reservations.delete(id);
+      }
       return true;
     },
     isRunning(id) {
@@ -312,6 +314,38 @@ function makeClaimSession() {
   );
   assert.equal(resumed?.thread?.id, "same-window-running", "原窗口重挂载必须续看自己运行中的 thread");
   assert.equal(resumed?.resumedRunning, true);
+
+  const staleRemountSession = makeClaimSession();
+  const staleRemountHost = {};
+  const staleOriginalOwner = createReservationOwner(staleRemountSession, staleRemountHost);
+  const staleOriginalClaim = createClaim(staleOriginalOwner);
+  assert.equal(
+    acquireOwnedThread(staleRemountSession, ["stale-running-remount"], staleOriginalClaim),
+    "stale-running-remount",
+  );
+  staleRemountSession.run("stale-running-remount", {});
+  const cancelledRemountOwner = createReservationOwner(staleRemountSession, staleRemountHost);
+  const cancelledRemount = await acquireIdleExistingThread(
+    { async getThread() { return { id: "stale-running-remount" }; } },
+    staleRemountSession,
+    "stale-running-remount",
+    cancelledRemountOwner,
+    () => false,
+  );
+  assert.equal(cancelledRemount, null, "迟到的同窗口重挂载不得绑定");
+  const retryRemountOwner = createReservationOwner(staleRemountSession, staleRemountHost);
+  const retryRemount = await acquireIdleExistingThread(
+    { async getThread() { return { id: "stale-running-remount" }; } },
+    staleRemountSession,
+    "stale-running-remount",
+    retryRemountOwner,
+    () => true,
+  );
+  assert.equal(
+    retryRemount?.thread?.id,
+    "stale-running-remount",
+    "取消同窗口 running remount 后必须保留正常 owner 锚点供下一挂载续看",
+  );
 
   const racedSession = makeClaimSession();
   const racedOwner = createReservationOwner(racedSession, {});
@@ -474,6 +508,41 @@ function makeClaimSession() {
     releaseCount,
     releaseBeforeCurrentFailure,
     "删除当前 thread 失败时不得释放其既有 claim",
+  );
+}
+
+{
+  const session = makeClaimSession();
+  const host = {};
+  const owner = createReservationOwner(session, host);
+  const claim = createClaim(owner);
+  const originalAcquire = session.acquireThread.bind(session);
+  session.acquireThread = (...args) => {
+    const acquired = originalAcquire(...args);
+    if (acquired) {
+      session.run(acquired, {});
+    }
+    return acquired;
+  };
+  let deleteCount = 0;
+  await assert.rejects(
+    () => deleteOwnedThread(
+      { async deleteThread() { deleteCount += 1; } },
+      session,
+      "delete-race",
+      claim,
+      true,
+      false,
+    ),
+    /正在运行/,
+  );
+  assert.equal(deleteCount, 0, "认领后启动的外部任务不得进入删除线性化点");
+  assert.equal(session.reservations.has("delete-race"), false, "删除竞态必须放弃临时 claim");
+  const remount = createReservationOwner(session, host);
+  assert.equal(
+    acquireOwnedThread(session, ["delete-race"], createClaim(remount)),
+    null,
+    "删除竞态放弃后同 owner 不得重挂载外部任务",
   );
 }
 
@@ -802,6 +871,45 @@ function makeClaimSession() {
   allowRead();
   await assert.rejects(delayedRead, /read authorization lost/);
   assert.equal(session.reservations.has(existing.id), false, "迟到历史读取必须释放自己的 claim");
+
+  const runningStore = new ConversationStore({ memoryOnly: true });
+  const runningThread = await runningStore.createThread(undefined, null, null, () => true);
+  const runningSession = makeClaimSession();
+  const runningHost = {};
+  const runningOwner = createReservationOwner(runningSession, runningHost);
+  const runningClaim = createClaim(runningOwner);
+  assert.equal(acquireOwnedThread(runningSession, [runningThread.id], runningClaim), runningThread.id);
+  let allowRunningRead;
+  const runningRead = readAcquiredThread(
+    {
+      async getThread() {
+        await new Promise(resolve => { allowRunningRead = resolve; });
+        return runningThread;
+      },
+    },
+    runningSession,
+    runningThread.id,
+    runningClaim,
+    () => true,
+  );
+  while (!allowRunningRead) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  runningSession.run(runningThread.id, {});
+  allowRunningRead();
+  await assert.rejects(runningRead, /running|运行/);
+  assert.equal(
+    runningSession.reservations.has(runningThread.id),
+    false,
+    "历史读取期间启动外部任务后必须放弃临时 claim",
+  );
+  const runningRemount = createReservationOwner(runningSession, runningHost);
+  const runningRemountClaim = createClaim(runningRemount);
+  assert.equal(
+    acquireOwnedThread(runningSession, [runningThread.id], runningRemountClaim),
+    null,
+    "临时 claim 放弃后同 owner 不得重挂载外部任务",
+  );
 }
 
 {
@@ -1189,6 +1297,16 @@ assert.match(openThread, /got\s*!==\s*id/);
 assert.match(openThread, /readAcquiredThread\s*\(/);
 assert.match(openThread, /beginSelectionIntent[\s\S]*try\s*\{[\s\S]*await conversations\.getThread/);
 assert.match(openThread, /finally\s*\{[\s\S]*releaseOwnedThread[\s\S]*finishSelectionIntent\s*\(/);
+assert.equal(
+  (openThread.match(/acquiredTarget\s*&&\s*session\.isRunning\(id\)/g) || []).length,
+  2,
+  "历史打开必须在认领前和读取后各复核一次运行态",
+);
+assert.match(
+  openThread,
+  /finally\s*\{[\s\S]*releaseOwnedThread\(session,\s*id,\s*targetReservation,\s*true\)/,
+  "历史打开未绑定时必须放弃运行中临时 claim",
+);
 
 const newChat = section("async function newChat", "// 选模式：");
 assert.match(newChat, /beginSelectionIntent[\s\S]*try\s*\{[\s\S]*await createOwnedThread/);

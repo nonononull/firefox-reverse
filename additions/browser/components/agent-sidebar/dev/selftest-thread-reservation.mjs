@@ -144,6 +144,19 @@ check("任务刚结束时其他 owner 仍受 TTL 保护", st.acquireThread(["T"]
 st.advance(RESERVE_TTL_MS + 1);
 check("任务结束且 TTL 过期后其他 owner 可回收", st.acquireThread(["T"], "winB", genB, 3), "T");
 
+// 3a-2) 临时 claim 放弃必须清掉运行中 owner 锚点；同 owner 也不得借临时 claim 重挂载外部任务
+st = makeStore();
+genA = st.beginThreadReservation("winA");
+genB = st.beginThreadReservation("winB");
+st.acquireThread(["T"], "winA", genA, 1);
+st.setRunning("T", true);
+check("运行中临时 claim 可显式放弃", st.releaseThread("T", "winA", genA, 1, true), true);
+const abandonedGenA = st.beginThreadReservation("winA");
+check("临时放弃后原 owner 不得重挂载外部任务", st.acquireThread(["T"], "winA", abandonedGenA, 1), null);
+check("临时放弃后其他 owner 仍不得接管运行任务", st.acquireThread(["T"], "winB", genB, 1), null);
+st.setRunning("T", false);
+check("临时放弃的任务结束后无需等待旧锚点 TTL", st.acquireThread(["T"], "winB", genB, 2), "T");
+
 // 3b) 同一挂载的新 claim 可接管自己的 reservation；旧异步操作不能续约或释放新 claim
 st = makeStore();
 genA = st.beginThreadReservation("winA");
