@@ -47,6 +47,7 @@ export class ConversationStore {
     this._creatingIds = new Set();
     this._loadPromise = null;
     this._mutationQueue = Promise.resolve();
+    this._recoverySavePending = false;
   }
 
   get isPersistent() {
@@ -93,7 +94,13 @@ export class ConversationStore {
   }
 
   _mutate(operation) {
-    const pending = this._mutationQueue.then(operation);
+    const pending = this._mutationQueue.then(async () => {
+      if (this._recoverySavePending) {
+        await this._save();
+        this._recoverySavePending = false;
+      }
+      return operation();
+    });
     this._mutationQueue = pending.catch(() => {});
     return pending;
   }
@@ -313,6 +320,7 @@ export class ConversationStore {
           try {
             await this._save();
           } catch (rollbackError) {
+            this._recoverySavePending = true;
             throw new Error(
               `conversation append rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
               { cause: e },
@@ -358,11 +366,26 @@ export class ConversationStore {
       const removed = removedIndex >= 0 ? d.threads[removedIndex] : null;
       if (removed) {
         d.threads.splice(removedIndex, 1);
+        let deletionSaved = false;
         try {
           await this._save();
+          deletionSaved = true;
+          // 保存期间 director 仍可能启动任务；完成写入后再同步复核一次，作为删除线性化点。
+          requireAuthorization(canDelete, "deletion", id, removed);
         } catch (e) {
           if (!d.threads.some(t => t.id === id)) {
             d.threads.splice(Math.min(removedIndex, d.threads.length), 0, removed);
+          }
+          if (deletionSaved) {
+            try {
+              await this._save();
+            } catch (rollbackError) {
+              this._recoverySavePending = true;
+              throw new Error(
+                `conversation deletion rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
+                { cause: e },
+              );
+            }
           }
           throw e;
         }

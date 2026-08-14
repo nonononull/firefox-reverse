@@ -183,6 +183,54 @@ ok(finalSaveCount === 2, "appendMessage 最终失权后持久化回滚快照");
 ok(finalSaveSnapshots.at(-1)?.threads[0]?.messages.length === 0, "最终失权的用户消息不留在持久化快照");
 ok((await finalGuardStore.getThread(finalGuardThread.id)).messages.length === 0, "最终失权的用户消息不留在内存");
 
+const rollbackFailureStore = new ConversationStore({ memoryOnly: true });
+const rollbackFailureThread = await rollbackFailureStore.createThread(undefined, null, null, () => true);
+let rollbackOwned = true;
+let rollbackSaveCount = 0;
+const rollbackSnapshots = [];
+rollbackFailureStore._save = async () => {
+  rollbackSaveCount += 1;
+  rollbackSnapshots.push(JSON.parse(JSON.stringify(rollbackFailureStore._mem)));
+  if (rollbackSaveCount === 1) {
+    rollbackOwned = false;
+    return;
+  }
+  if (rollbackSaveCount === 2) {
+    throw new Error("rollback save failed");
+  }
+  if (rollbackSaveCount === 3) {
+    throw new Error("recovery save unavailable");
+  }
+};
+let rollbackFailureRejected = false;
+try {
+  await rollbackFailureStore.appendMessage(
+    rollbackFailureThread.id,
+    { role: "user", content: "回滚失败也不能夹带" },
+    () => rollbackOwned,
+    () => {},
+  );
+} catch (e) {
+  rollbackFailureRejected = /append rollback save failed/.test(String(e?.message || e));
+}
+ok(rollbackFailureRejected, "appendMessage 回滚二次保存失败时显式进入恢复态");
+ok(rollbackFailureThread.messages.length === 0, "回滚二次保存失败后内存仍保持无消息状态");
+let blockedByRecovery = false;
+try {
+  await rollbackFailureStore.setThreadWorkspace(rollbackFailureThread.id, "D:\\blocked");
+} catch (e) {
+  blockedByRecovery = /recovery save unavailable/.test(String(e?.message || e));
+}
+ok(blockedByRecovery, "恢复快照仍无法保存时阻断后续 mutation");
+ok(rollbackFailureThread.workspace === null, "恢复完成前不得修改 thread");
+ok(
+  rollbackSnapshots[2]?.threads[0]?.workspace === null,
+  "恢复写必须发生在后续 mutation 修改内存之前",
+);
+await rollbackFailureStore.setThreadWorkspace(rollbackFailureThread.id, "D:\\recovered");
+ok(rollbackFailureThread.workspace === "D:\\recovered", "恢复快照保存成功后才允许后续 mutation");
+ok(rollbackSnapshots[3]?.threads[0]?.messages.length === 0, "恢复保存先清除磁盘中的未运行消息");
+
 const modeLoad = guardedStore._load.bind(guardedStore);
 let allowModeLoad;
 guardedStore._load = async () => {
@@ -411,6 +459,48 @@ s._load = originalLoad;
 ok(guardRanAfterLoad, "deleteThread 在 load 后、变更列表前复核 guard");
 ok(lostGuardRejected, "删除线性化前失权时失败关闭");
 ok((await s.getThread(t2.id)) !== null, "删除线性化前失权时保留原线程");
+
+const deleteRollbackStore = new ConversationStore({ memoryOnly: true });
+const deleteRollbackThread = await deleteRollbackStore.createThread(undefined, null, null, () => true);
+let deleteOwned = true;
+let deleteRollbackSaveCount = 0;
+const deleteRollbackSnapshots = [];
+deleteRollbackStore._save = async () => {
+  deleteRollbackSaveCount += 1;
+  deleteRollbackSnapshots.push(JSON.parse(JSON.stringify(deleteRollbackStore._mem)));
+  if (deleteRollbackSaveCount === 1) {
+    deleteOwned = false;
+    return;
+  }
+  if (deleteRollbackSaveCount === 2) {
+    throw new Error("delete rollback save failed");
+  }
+  if (deleteRollbackSaveCount === 3) {
+    throw new Error("delete recovery unavailable");
+  }
+};
+let deleteRollbackRejected = false;
+try {
+  await deleteRollbackStore.deleteThread(deleteRollbackThread.id, () => deleteOwned);
+} catch (e) {
+  deleteRollbackRejected = /deletion rollback save failed/.test(String(e?.message || e));
+}
+ok(deleteRollbackRejected, "deleteThread 回滚二次保存失败时显式进入恢复态");
+ok((await deleteRollbackStore.getThread(deleteRollbackThread.id)) !== null, "删除回滚失败后内存保留原线程");
+let deleteRecoveryBlocked = false;
+try {
+  await deleteRollbackStore.renameThread(deleteRollbackThread.id, "不得提前修改");
+} catch (e) {
+  deleteRecoveryBlocked = /delete recovery unavailable/.test(String(e?.message || e));
+}
+ok(deleteRecoveryBlocked, "删除恢复快照仍无法保存时阻断后续 mutation");
+ok(deleteRollbackThread.title === "新对话", "删除恢复完成前不得修改 thread");
+ok(
+  deleteRollbackSnapshots[2]?.threads[0]?.title === "新对话",
+  "删除恢复写必须发生在后续 mutation 修改内存之前",
+);
+await deleteRollbackStore.renameThread(deleteRollbackThread.id, "恢复后允许修改");
+ok(deleteRollbackThread.title === "恢复后允许修改", "删除恢复成功后才允许后续 mutation");
 
 await s.deleteThread(t2.id, () => true);
 ok((await s.listThreads()).length === 1, "deleteThread 生效");

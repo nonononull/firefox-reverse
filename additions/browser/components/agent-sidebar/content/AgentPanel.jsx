@@ -498,23 +498,65 @@ async function acquireIdleExistingThread(
     }
     return null;
   }
+  if (!wasRunning) {
+    try {
+      const thread = await readAcquiredThread(conversations, session, threadId, claim, canKeep);
+      return thread ? { thread, reservation: claim, resumedRunning: false } : null;
+    } catch (e) {
+      if (/conversation (?:became running|read authorization lost)/.test(String(e?.message || e))) {
+        return null;
+      }
+      throw e;
+    }
+  }
   let keep = false;
   try {
-    if (!wasRunning && session.isRunning(threadId)) {
-      return null;
-    }
     const thread = await conversations.getThread(threadId);
-    if (!thread || canKeep() !== true || (!wasRunning && session.isRunning(threadId)) ||
-        !renewOwnedThread(session, threadId, claim, () => {})) {
+    if (!thread || canKeep() !== true || !renewOwnedThread(session, threadId, claim, () => {})) {
       return null;
     }
     keep = true;
-    return { thread, reservation: claim, resumedRunning: wasRunning };
+    return { thread, reservation: claim, resumedRunning: true };
   } finally {
     if (!keep) {
-      releaseOwnedThread(session, threadId, claim, !wasRunning);
+      releaseOwnedThread(session, threadId, claim, false);
     }
   }
+}
+
+async function acquirePreferredExistingThread(
+  conversations,
+  session,
+  candidateIds,
+  reservation,
+  canKeep = () => true,
+) {
+  if (!session || typeof session.isRunning !== "function") {
+    throw new Error("Agent 运行状态接口不完整，已拒绝加载历史会话。");
+  }
+  const candidates = (candidateIds || [])
+    .filter(Boolean)
+    .map(id => ({ id, running: session.isRunning(id) }));
+  const ordered = [
+    ...candidates.filter(candidate => candidate.running),
+    ...candidates.filter(candidate => !candidate.running),
+  ];
+  for (const candidate of ordered) {
+    if (canKeep() !== true) {
+      return null;
+    }
+    const existing = await acquireIdleExistingThread(
+      conversations,
+      session,
+      candidate.id,
+      reservation,
+      canKeep,
+    );
+    if (existing) {
+      return existing;
+    }
+  }
+  return null;
 }
 
 async function createOwnedThread(conversations, session, reservation, canCreate = () => true) {
@@ -854,19 +896,18 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         if (cancelled || !sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
           return;
         }
-        // 多窗口隔离：只认领最近且空闲的历史；其它窗口或 MCP 正在运行的 thread 不接管。
-        const latest = list.length > 0 ? list[0].id : null;
-        const existing = latest ? await acquireIdleExistingThread(
+        // 优先续接本窗口仍在运行的历史，再按更新时间认领空闲历史；其它 owner 的任务会被跳过。
+        const existing = await acquirePreferredExistingThread(
           conversations,
           session,
-          latest,
+          list.map(thread => thread.id),
           reservationRef.current,
           () => !cancelled && sameSelectionIntent(
             selectionRef,
             selectionIntentRef,
             initialSelection,
           ),
-        ) : null;
+        );
         pendingReservation = existing?.reservation || null;
         pendingOwnedId = existing?.thread?.id || null;
         pendingResumedRunning = existing?.resumedRunning === true;
@@ -1783,6 +1824,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     );
     let acquiredTarget = false;
     let targetReservation = null;
+    let targetResumedRunning = false;
     let targetBound = false;
     try {
       if (!hasThreadReservation(session)) {
@@ -1792,24 +1834,30 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       }
       // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
       acquiredTarget = id !== expectedSelection.id;
-      if (acquiredTarget && session.isRunning(id)) {
-        setError("该任务正在原窗口运行，不能在此窗口接管。");
-        setShowHistory(false);
-        return;
-      }
       targetReservation = acquiredTarget
-        ? createReservationClaim(reservationRef.current)
+        ? null
         : reservationForSelection(reservationRef.current, expectedSelection);
+      let t = null;
       if (acquiredTarget) {
-        const got = acquireOwnedThread(session, [id], targetReservation);
-        if (got !== id) {
-          if (got) {
-            releaseOwnedThread(session, got, targetReservation, true);
-          }
+        const existing = await acquirePreferredExistingThread(
+          conversations,
+          session,
+          [id],
+          reservationRef.current,
+          () => mountedRef.current && sameSelectionIntent(
+            selectionRef,
+            selectionIntentRef,
+            expectedSelection,
+          ),
+        );
+        if (!existing) {
           setError("该会话已在另一个浏览器窗口打开，不能在此窗口同时打开（避免对话串）。");
           setShowHistory(false);
           return;
         }
+        t = existing.thread;
+        targetReservation = existing.reservation;
+        targetResumedRunning = existing.resumedRunning === true;
       } else if (!ownsSelectedThreadForIntent(
         session,
         selectionRef,
@@ -1820,29 +1868,18 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         setError("当前会话的窗口预留已失效，无法重新打开该会话。");
         setShowHistory(false);
         return;
+      } else {
+        t = await conversations.getThread(id);
       }
-      const t = acquiredTarget
-        ? await readAcquiredThread(
-            conversations,
-            session,
-            id,
-            targetReservation,
-            () => mountedRef.current && sameSelectionIntent(
-              selectionRef,
-              selectionIntentRef,
-              expectedSelection,
-            ),
-          )
-        : await conversations.getThread(id);
-      // readAcquiredThread 返回后还会跨一个微任务；绑定前再复核，拒绝此间由 director 启动的任务。
-      if (acquiredTarget && session.isRunning(id)) {
+      // helper 返回后还会跨一个微任务；只有精确重挂载的 running thread 可以继续绑定。
+      if (acquiredTarget && !targetResumedRunning && session.isRunning(id)) {
         setError("该任务已在原窗口运行，不能在此窗口接管。");
         setShowHistory(false);
         return;
       }
       if (!mountedRef.current) {
         if (acquiredTarget) {
-          releaseOwnedThread(session, id, targetReservation, true);
+          releaseOwnedThread(session, id, targetReservation, !targetResumedRunning);
         }
         return;
       }
@@ -1851,7 +1888,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       }
       if (!t) {
         if (acquiredTarget) {
-          releaseOwnedThread(session, id, targetReservation, true);
+          releaseOwnedThread(session, id, targetReservation, !targetResumedRunning);
         }
         setError("历史会话不存在或已被删除。");
         setShowHistory(false);
@@ -1888,7 +1925,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       }
     } finally {
       if (acquiredTarget && !targetBound) {
-        releaseOwnedThread(session, id, targetReservation, true);
+        releaseOwnedThread(session, id, targetReservation, !targetResumedRunning);
       }
       finishSelectionIntent(pendingSelectionIntentRef, expectedSelection);
     }

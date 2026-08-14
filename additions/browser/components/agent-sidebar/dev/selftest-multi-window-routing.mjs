@@ -145,9 +145,15 @@ const acquireIdleExistingThread = sourceFunction(
     hasThreadReservation,
     createReservationClaim: createClaim,
     acquireOwnedThread,
+    readAcquiredThread,
     renewOwnedThread,
     releaseOwnedThread,
   },
+);
+const acquirePreferredExistingThread = sourceFunction(
+  "acquirePreferredExistingThread",
+  "async function",
+  { acquireIdleExistingThread },
 );
 const commitOwnedUserMessage = sourceFunction("commitOwnedUserMessage", "async function");
 const beginThreadConfigIntent = sourceFunction("beginThreadConfigIntent", "function");
@@ -314,6 +320,31 @@ function makeClaimSession() {
   );
   assert.equal(resumed?.thread?.id, "same-window-running", "原窗口重挂载必须续看自己运行中的 thread");
   assert.equal(resumed?.resumedRunning, true);
+
+  const parallelSession = makeClaimSession();
+  const originalHost = {};
+  const originalMount = createReservationOwner(parallelSession, originalHost);
+  const originalClaim = createClaim(originalMount);
+  assert.equal(acquireOwnedThread(parallelSession, ["owned-running"], originalClaim), "owned-running");
+  parallelSession.run("owned-running", {});
+  const otherMount = createReservationOwner(parallelSession, {});
+  const otherClaim = createClaim(otherMount);
+  assert.equal(acquireOwnedThread(parallelSession, ["newer-other"], otherClaim), "newer-other");
+  parallelSession.run("newer-other", {});
+  const remount = createReservationOwner(parallelSession, originalHost);
+  const preferred = await acquirePreferredExistingThread(
+    { async getThread(id) { return { id }; } },
+    parallelSession,
+    ["newer-other", "owned-running"],
+    remount,
+    () => true,
+  );
+  assert.equal(
+    preferred?.thread?.id,
+    "owned-running",
+    "初始化必须跳过其它窗口较新的 thread，并重挂载本窗口仍在运行的 thread",
+  );
+  assert.equal(preferred?.resumedRunning, true);
 
   const staleRemountSession = makeClaimSession();
   const staleRemountHost = {};
@@ -549,6 +580,46 @@ function makeClaimSession() {
     null,
     "删除竞态放弃后同 owner 不得重挂载外部任务",
   );
+}
+
+{
+  const store = new ConversationStore({ memoryOnly: true });
+  const thread = await store.createThread(undefined, null, null, () => true);
+  const session = makeClaimSession();
+  const owner = createReservationOwner(session, {});
+  let releaseDeleteSave;
+  let signalDeleteSave;
+  const deleteSaveStarted = new Promise(resolve => { signalDeleteSave = resolve; });
+  const deleteSaveGate = new Promise(resolve => { releaseDeleteSave = resolve; });
+  let deleteSaveCount = 0;
+  const deleteSnapshots = [];
+  store._save = async () => {
+    deleteSaveCount += 1;
+    deleteSnapshots.push(JSON.parse(JSON.stringify(store._mem)));
+    if (deleteSaveCount === 1) {
+      signalDeleteSave();
+      await deleteSaveGate;
+    }
+  };
+  const deleting = deleteOwnedThread(
+    store,
+    session,
+    thread.id,
+    createClaim(owner),
+    true,
+    false,
+  );
+  await deleteSaveStarted;
+  session.run(thread.id, {});
+  releaseDeleteSave();
+  await assert.rejects(
+    deleting,
+    /deletion authorization lost/,
+    "删除持久化期间启动的 external run 必须使删除回滚",
+  );
+  assert.equal((await store.getThread(thread.id))?.id, thread.id, "删除竞态必须恢复历史 thread");
+  assert.equal(deleteSaveCount, 2, "删除最终失权后必须持久化恢复快照");
+  assert.equal(deleteSnapshots.at(-1)?.threads[0]?.id, thread.id, "恢复快照必须包含运行中的 thread");
 }
 
 {
@@ -1294,24 +1365,25 @@ assert.match(reservationLifecycle, /setCurrentId\(current\s*=>\s*current\s*===\s
 assert.match(reservationLifecycle, /setError\("当前会话的窗口预留已失效/);
 
 const initialization = section("// 初始化：载入线程列表", "// 续看：mount/切线程");
-assert.match(initialization, /await acquireIdleExistingThread\s*\(/);
+assert.match(initialization, /await acquirePreferredExistingThread\s*\(/);
+assert.match(initialization, /list\.map\(thread\s*=>\s*thread\.id\)/);
 assert.match(initialization, /session\.isRunning\(t\.id\)/);
 assert.match(initialization, /keepOwnedThreadForSelection\s*\(/);
 assert.match(initialization, /sameSelectionIntent\(selectionRef, selectionIntentRef, initialSelection\)/);
 const openThread = section("async function openThread", "async function deleteThread");
-assert.match(openThread, /got\s*!==\s*id/);
-assert.match(openThread, /readAcquiredThread\s*\(/);
+assert.match(openThread, /await acquirePreferredExistingThread\s*\(/);
+assert.match(openThread, /targetResumedRunning/);
 assert.match(openThread, /beginSelectionIntent[\s\S]*try\s*\{[\s\S]*await conversations\.getThread/);
 assert.match(openThread, /finally\s*\{[\s\S]*releaseOwnedThread[\s\S]*finishSelectionIntent\s*\(/);
 assert.equal(
-  (openThread.match(/acquiredTarget\s*&&\s*session\.isRunning\(id\)/g) || []).length,
-  2,
-  "历史打开必须在认领前和读取后各复核一次运行态",
+  (openThread.match(/acquiredTarget\s*&&\s*!targetResumedRunning\s*&&\s*session\.isRunning\(id\)/g) || []).length,
+  1,
+  "历史打开只允许精确重挂载的 running thread，空闲候选读取后进入运行态仍必须拒绝",
 );
 assert.match(
   openThread,
-  /finally\s*\{[\s\S]*releaseOwnedThread\(session,\s*id,\s*targetReservation,\s*true\)/,
-  "历史打开未绑定时必须放弃运行中临时 claim",
+  /finally\s*\{[\s\S]*releaseOwnedThread\(session,\s*id,\s*targetReservation,\s*!targetResumedRunning\)/,
+  "历史打开未绑定时必须保留合法重挂载锚点，只放弃临时 claim",
 );
 
 const newChat = section("async function newChat", "// 选模式：");
@@ -1366,7 +1438,7 @@ assert.equal(
 
 const deleteHistory = section("async function deleteThread", "function onKeyDown");
 assert.match(deleteHistory, /await deleteOwnedThread\s*\(/);
-assert.match(deleteHistory, /deletingCurrent[\s\S]*createReservationClaim\(reservationRef\.current\)/);
+assert.match(deleteHistory, /deletingCurrent[\s\S]*createReservationClaim\(reservation\)/);
 assert.doesNotMatch(deleteHistory, /await conversations\.deleteThread\s*\(/);
 assert.match(deleteHistory, /beginSelectionIntent[\s\S]*finally\s*\{\s*finishSelectionIntent\s*\(/);
 
