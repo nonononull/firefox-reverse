@@ -29,6 +29,7 @@ SELFTESTS=(
   selftest-anthropic.mjs
   selftest-toolrouter.mjs
   selftest-thread-reservation.mjs
+  selftest-multi-window-routing.mjs
   selftest-workspace.mjs
   selftest-environment.mjs
   selftest-e2e.mjs
