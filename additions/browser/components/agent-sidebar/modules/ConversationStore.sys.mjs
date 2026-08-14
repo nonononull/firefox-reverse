@@ -218,9 +218,20 @@ export class ConversationStore {
       const d = await this._load();
       const t = d.threads.find(x => x.id === id);
       if (t) {
-        t.envId = envId || null;
-        t.updatedAt = nextTs();
-        await this._save();
+        const previous = { envId: t.envId, updatedAt: t.updatedAt };
+        const nextEnvId = envId || null;
+        t.envId = nextEnvId;
+        const mutationUpdatedAt = nextTs();
+        t.updatedAt = mutationUpdatedAt;
+        try {
+          await this._save();
+        } catch (e) {
+          if (t.envId === nextEnvId && t.updatedAt === mutationUpdatedAt) {
+            t.envId = previous.envId;
+            t.updatedAt = previous.updatedAt;
+          }
+          throw e;
+        }
       }
       return t;
     });
@@ -232,9 +243,20 @@ export class ConversationStore {
       const d = await this._load();
       const t = d.threads.find(x => x.id === id);
       if (t) {
-        t.modelStrategy = strategy === "premium" ? "premium" : "balanced";
-        t.updatedAt = nextTs();
-        await this._save();
+        const previous = { modelStrategy: t.modelStrategy, updatedAt: t.updatedAt };
+        const nextStrategy = strategy === "premium" ? "premium" : "balanced";
+        t.modelStrategy = nextStrategy;
+        const mutationUpdatedAt = nextTs();
+        t.updatedAt = mutationUpdatedAt;
+        try {
+          await this._save();
+        } catch (e) {
+          if (t.modelStrategy === nextStrategy && t.updatedAt === mutationUpdatedAt) {
+            t.modelStrategy = previous.modelStrategy;
+            t.updatedAt = previous.updatedAt;
+          }
+          throw e;
+        }
       }
       return t;
     });
@@ -293,9 +315,20 @@ export class ConversationStore {
       const d = await this._load();
       const t = d.threads.find(x => x.id === id);
       if (t) {
-        t.title = title || NEW_TITLE;
-        t.updatedAt = nextTs();
-        await this._save();
+        const previous = { title: t.title, updatedAt: t.updatedAt };
+        const nextTitle = title || NEW_TITLE;
+        t.title = nextTitle;
+        const mutationUpdatedAt = nextTs();
+        t.updatedAt = mutationUpdatedAt;
+        try {
+          await this._save();
+        } catch (e) {
+          if (t.title === nextTitle && t.updatedAt === mutationUpdatedAt) {
+            t.title = previous.title;
+            t.updatedAt = previous.updatedAt;
+          }
+          throw e;
+        }
       }
       return t;
     });

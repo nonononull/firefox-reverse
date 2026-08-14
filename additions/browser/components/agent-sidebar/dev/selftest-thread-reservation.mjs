@@ -128,6 +128,22 @@ genA = st.beginThreadReservation("winA");
 st.setRunning("external", true);
 check("无预留外部运行 thread 不得认领", st.acquireThread(["external"], "winA", genA, 1), null);
 
+// 3a-1) 运行中正常卸载保留 owner 锚点：原窗口可重挂载，其他窗口需等任务结束且 TTL 过期
+st = makeStore();
+genA = st.beginThreadReservation("winA");
+genB = st.beginThreadReservation("winB");
+st.acquireThread(["T"], "winA", genA, 1);
+st.setRunning("T", true);
+check("运行中卸载接受精确 release", st.releaseThread("T", "winA", genA, 1), true);
+const remountGenA = st.beginThreadReservation("winA");
+check("运行中 release 后原 owner 可重挂载", st.acquireThread(["T"], "winA", remountGenA, 1), "T");
+check("运行中 release 后其他 owner 仍不得接管", st.acquireThread(["T"], "winB", genB, 1), null);
+check("重挂载再次卸载保留 owner 锚点", st.releaseThread("T", "winA", remountGenA, 1), true);
+st.setRunning("T", false);
+check("任务刚结束时其他 owner 仍受 TTL 保护", st.acquireThread(["T"], "winB", genB, 2), null);
+st.advance(RESERVE_TTL_MS + 1);
+check("任务结束且 TTL 过期后其他 owner 可回收", st.acquireThread(["T"], "winB", genB, 3), "T");
+
 // 3b) 同一挂载的新 claim 可接管自己的 reservation；旧异步操作不能续约或释放新 claim
 st = makeStore();
 genA = st.beginThreadReservation("winA");

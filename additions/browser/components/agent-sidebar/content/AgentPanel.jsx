@@ -928,8 +928,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   // 多窗口隔离的**预留生命周期 + 心跳**：本侧栏显示 currentId 期间，定时 renew 续约证明本窗口还活着
   // （别的窗口在 TTL 内认领不到这条→不串对话）；切走/关闭时释放。**关键修复**：切到别的插件侧栏时
   // 文档被异常拆除、React unmount 清理常跑不成→旧版预留泄漏→切回报"已在另一窗口打开"。两道兜底：
-  // ① 监听 `pagehide`（文档拆除时比 React unmount 更可靠地触发）即时释放；② 引擎侧心跳 TTL：哪怕都没跑成，
-  // 旧预留过期即可回收，且同窗口重挂载用同一 owner token 可立即重认领。
+  // ① 监听 `pagehide`（文档拆除时比 React unmount 更可靠地触发）停止续约；空闲 thread 即时释放，运行中
+  // thread 保留不续时的 owner 锚点；② 引擎侧心跳 TTL：任务结束后旧锚点可回收，同窗口可立即重挂载。
   useEffect(() => {
     if (!session || !currentId) {
       return undefined;

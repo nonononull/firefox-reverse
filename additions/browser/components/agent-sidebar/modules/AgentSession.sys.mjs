@@ -336,7 +336,8 @@ export const agentSession = {
     s.reservation.ts = Date.now();
     return true;
   },
-  /** 释放本窗口对某线程的预留（侧栏切走该线程 / pagehide / 关闭窗口时调）。释放后该线程可被任意窗口重开续看。
+  /** 释放本窗口对某线程的预留（侧栏切走该线程 / pagehide / 关闭窗口时调）。
+   *  运行中的线程保留不续时的 owner 锚点，让同一窗口可重挂载、其它窗口不能接管；任务结束后按 TTL 回收。
    *  仅精确匹配 owner 与 generation 时释放；旧式缺参调用失败关闭。引擎后台仍跑不受影响。 */
   releaseThread(threadId, owner, generation, claim) {
     const s = sessions.get(threadId);
@@ -348,7 +349,9 @@ export const agentSession = {
         s.reservation.claim !== claim) {
       return false;                             // 不是自己的精确挂载代际，别动
     }
-    s.reservation = null;
+    if (!s.running) {
+      s.reservation = null;
+    }
     return true;
   },
   /** 取本线程当前快照（mount/remount 恢复用）；无则 null。 */

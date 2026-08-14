@@ -291,6 +291,54 @@ ok(interleavedResult.mode === null, "后续保存不保留失败的 mode 修改"
 ok(interleavedResult.workspace === "D:\\serialized", "后续保存保留自己的 workspace 修改");
 ok(successfulSnapshots.at(-1)?.threads[0]?.mode === null, "成功持久化快照不夹带失败 mode");
 
+// environment/model/title 保存失败也必须回滚内存，后续成功保存不得夹带失败值。
+const metadataFailureCases = [
+  {
+    label: "setThreadEnvironment",
+    property: "envId",
+    mutate: (store, thread) => store.setThreadEnvironment(thread.id, "env-failed"),
+  },
+  {
+    label: "setThreadModelStrategy",
+    property: "modelStrategy",
+    mutate: (store, thread) => store.setThreadModelStrategy(thread.id, "premium"),
+  },
+  {
+    label: "renameThread",
+    property: "title",
+    mutate: (store, thread) => store.renameThread(thread.id, "不得夹带的失败标题"),
+  },
+];
+for (const testCase of metadataFailureCases) {
+  const store = new ConversationStore({ memoryOnly: true });
+  const thread = await store.createThread(undefined, null, null, () => true);
+  const originalValue = thread[testCase.property];
+  const originalMutationUpdatedAt = thread.updatedAt;
+  const snapshots = [];
+  let saveCount = 0;
+  store._save = async () => {
+    saveCount += 1;
+    if (saveCount === 1) {
+      throw new Error(`${testCase.label} save failed`);
+    }
+    snapshots.push(JSON.parse(JSON.stringify(store._mem)));
+  };
+  let rejected = false;
+  try {
+    await testCase.mutate(store, thread);
+  } catch (e) {
+    rejected = new RegExp(`${testCase.label} save failed`).test(String(e?.message || e));
+  }
+  ok(rejected, `${testCase.label} 透传保存失败`);
+  ok(thread[testCase.property] === originalValue, `${testCase.label} 保存失败时回滚内存值`);
+  ok(thread.updatedAt === originalMutationUpdatedAt, `${testCase.label} 保存失败时回滚更新时间`);
+  await store.setThreadWorkspace(thread.id, `D:\\after-${testCase.property}-failure`);
+  ok(
+    snapshots.at(-1)?.threads[0]?.[testCase.property] === originalValue,
+    `${testCase.label} 后续成功快照不夹带失败值`,
+  );
+}
+
 await s.renameThread(t1.id, "RC4 入口分析");
 ok((await s.getThread(t1.id)).title === "RC4 入口分析", "renameThread 生效");
 
