@@ -4,14 +4,15 @@ owner_exception_ref: owner-direct:current-thread:approved-firefox-reverse-multi-
 allowed_repositories:
   - project
 allowed_paths:
-  - D:\Android_source\firefox-reverse\additions\browser\components\agent-sidebar\content\AgentPanel.jsx
-  - D:\Android_source\firefox-reverse\additions\browser\components\agent-sidebar\dev\selftest-multi-window-routing.mjs
-  - D:\Android_source\firefox-reverse\scripts\selftest-agent-tools.sh
-  - D:\Android_source\firefox-reverse\build.md
-  - D:\Android_source\firefox-reverse\err.md
-  - D:\Android_source\firefox-reverse\docs\plans\sessions\issue-1-multi-window-thread-routing.md
-  - D:\Android_source\firefox-reverse\docs\plans\sessions\issue-1-multi-window-thread-routing.owner-scope.yml
-  - D:\Android_source\firefox-reverse\.ai-growth-os\runtime-workflows\issue-1-multi-window-thread-routing.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\AGENTS.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\additions\browser\components\agent-sidebar\content\AgentPanel.jsx
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\additions\browser\components\agent-sidebar\dev\selftest-multi-window-routing.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\scripts\selftest-agent-tools.sh
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\build.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\err.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\docs\plans\sessions\issue-1-multi-window-thread-routing.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\docs\plans\sessions\issue-1-multi-window-thread-routing.owner-scope.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\.ai-growth-os\runtime-workflows\issue-1-multi-window-thread-routing.yml
 allowed_ops:
   - source-edit
   - write-code
@@ -24,14 +25,15 @@ allowed_ops:
   - merge
   - delivery-closeout
 allowed_path_ops:
-  - D:\Android_source\firefox-reverse\additions\browser\components\agent-sidebar\content\AgentPanel.jsx::source-edit,write-code,git-add,commit
-  - D:\Android_source\firefox-reverse\additions\browser\components\agent-sidebar\dev\selftest-multi-window-routing.mjs::source-edit,write-test,git-add,commit
-  - D:\Android_source\firefox-reverse\scripts\selftest-agent-tools.sh::source-edit,write-test,git-add,commit
-  - D:\Android_source\firefox-reverse\build.md::project-doc-write,git-add,commit
-  - D:\Android_source\firefox-reverse\err.md::project-doc-write,git-add,commit
-  - D:\Android_source\firefox-reverse\docs\plans\sessions\issue-1-multi-window-thread-routing.md::project-doc-write,git-add,commit
-  - D:\Android_source\firefox-reverse\docs\plans\sessions\issue-1-multi-window-thread-routing.owner-scope.yml::project-doc-write,git-add,commit
-  - D:\Android_source\firefox-reverse\.ai-growth-os\runtime-workflows\issue-1-multi-window-thread-routing.yml::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\AGENTS.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\additions\browser\components\agent-sidebar\content\AgentPanel.jsx::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\additions\browser\components\agent-sidebar\dev\selftest-multi-window-routing.mjs::source-edit,write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\scripts\selftest-agent-tools.sh::source-edit,write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\build.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\err.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\docs\plans\sessions\issue-1-multi-window-thread-routing.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\docs\plans\sessions\issue-1-multi-window-thread-routing.owner-scope.yml::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-1-minimal-thread-routing\.ai-growth-os\runtime-workflows\issue-1-multi-window-thread-routing.yml::project-doc-write,git-add,commit
 forbidden_ops:
   - create-upstream-pr
   - publish-binary
@@ -41,3 +43,7 @@ forbidden_ops:
   - mutate-pingbo-or-bet365
   - access-account-or-live-origin
   - modify-agent-session-reservation-or-raw-tool-lock
+  - modify-conversation-store-or-persistence-format
+  - add-generation-claim-run-epoch-or-recovery-journal
+  - add-tests-outside-fixed-four-contracts
+  - reopen-current-scope-from-reviewer-observation
