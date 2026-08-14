@@ -216,3 +216,13 @@
 - 修复：实现提交 `09e5b77549099f46855fbd406e51e248ea630a89`、tree `d1574650e8a61d1ba272c19d840f3f141630e513` 让过期 heartbeat 失败关闭；读取与 mutation 复用同一串行队列；首次 rollback journal 改写失败后先恢复内存，再重新建立 rollback recovery、恢复 canonical 并清理责任；snapshot 校验与 `AgentPanel` 的真实消费结构对齐。
 - 验证：exact implementation SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `222.4kb`、13/13 Node 自测文件、thread reservation `80/80`、ConversationStore `146/146`、multi-window routing `PASS`、branding 22 文件、lockfile SHA-256 不变及 `git diff --check` 全部通过，最终标记 `FULL_GATE_OK`。
 - 边界：该批只修改 `AgentSession` reservation fence、`ConversationStore` 和三份自测；未修改 `AgentPanel`、`AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁、director 兼容签名或 owner-scope。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库仍为 `no-PR-CI`，本地门禁不是 CI，fresh final exact-head reviewer 仍是合并硬门。
+
+## 2026-08-14：内部读取引用与 stale committed journal 仍可泄露已拒绝状态
+
+- 取证时间：`2026-08-14 15:29:43 +08:00`。
+- 现象：fresh reviewer `019fff05-d76d-7673-98f5-9c4ccb2ab421` 对 final HEAD `4b2ab8b88aa175528d08c246d6e35b8e39f62560`、tree `f10ee625c142233c592a7645bfb5ac6273faa30d` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。`getThread()` 直接返回 `_mem` 内部对象，已返回引用可观察随后回滚的 provisional mutation；持续 sidecar 写入和删除故障会留下 stale committed journal，fresh Store 可能反向覆盖已成功持久化的 rollback canonical；validator 测试缺少 tool `id/status/shot`、单独必填字段及真实生产 steps 的正向 mutation shield。
+- 红测：接管前故障注入在旧实现得到 `174 passed, 5 failed`，分别命中 retained thread 引用、持续 append/deletion sidecar 故障与 validator 正反向缺口；修复后同文件为 `181/181`。
+- 修复：实现提交 `7e69ca1a15fb631e232b1277dd7694103448ba23`、tree `d8fbf58bb70d395acc31451cb2a4a6cc24ae96a0` 让 `getThread()` 返回 detached JSON snapshot；committed journal 同时记录原始 rollback snapshot，fresh replay 仅在 canonical 与该 rollback snapshot 精确一致时保留 canonical；测试新增持续故障、旧引用隔离、独立畸形字段、真实生产 step 正向 replay 和畸形 committed rollback snapshot 负例。
+- 验证：exact implementation SHA 上无重试通过 `npm ci`、bundle `222.4kb`、13/13 Node 自测、reservation `80/80`、ConversationStore `181/181`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`。审计仍报告现有 esbuild 开发依赖 1 个 moderate；其建议为 breaking upgrade，未在本任务升级。
+- 过程纠错：正式门禁前的纯身份预检因手工写错完整 SHA 立即停止，发生在 `npm ci`、构建和测试之前，未产生验证结果或工作树变化；随后以实际 exact HEAD 启动唯一正式无重试链。
+- 边界：没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；没有发布二进制或修改本机 `omni.ja`。PR 无 pull-request CI，以上仍是本地证据，必须由新的 exact-head reviewer 复审。

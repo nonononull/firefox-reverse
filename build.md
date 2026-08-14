@@ -51,11 +51,11 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-conversations.mjs
 - `session.run()` 抛错或调用后未进入 running 时必须回滚并重新持久化本次用户消息；user append 保存失败必须在启动前回滚消息、自动标题和 `updatedAt`，后续成功保存不得夹带失败 mutation。mode/workspace 保存失败同样必须条件回滚。
 - 历史删除先拒绝运行态，再取得独占 reservation 并复核运行态；`ConversationStore` 在实际修改线程列表前再次执行同步所有权 guard，加载期间失权、其它窗口占用或运行中的 thread 均不得删除。
 - 历史删除还必须固定 `AgentSession` 的单调 `runEpoch`；保存期间 external run 即使启动后快速失败并恢复 idle，最终 guard 也必须拒绝删除并恢复历史。
-- UI guarded append/deletion 必须在 provisional canonical 前先写入同目录 `.recovery` sidecar；提交成功后才清理 sidecar。fresh `ConversationStore` 必须先完成 canonical replay 并清理 sidecar，replay 失败时保留 sidecar且后续读取与 mutation 都失败关闭。
+- UI guarded append/deletion 必须在 provisional canonical 前先写入同目录 `.recovery` sidecar；committed journal 必须同时保留原始 rollback snapshot。提交成功后才清理 sidecar；若持续 sidecar 故障留下 stale committed journal，而 canonical 已精确恢复为 rollback snapshot，fresh `ConversationStore` 必须保留 rollback canonical，不能复活已拒绝的 append 或 deletion。replay 失败时保留 sidecar且后续读取与 mutation 都失败关闭。
 - 选择事务的 pending 标记只由匹配 intent 清除；旧事务结束不得清除更新事务。
 - 初始化、发送前建会话和“新对话”统一经过有界精确认领入口。
 
-第二项验证 owner token、generation、跨 thread 单调 claim、运行态 owner 门禁、卸载锚点、心跳、TTL 与同 thread 独占。第三项验证首次持久化只发布一个共享 load Promise、recovery replay 与全部 mutation 串行化、sidecar 深层结构校验、director 旧签名兼容、user append/mode/workspace/environment/model/title 保存失败回滚，以及删除缺少 guard 或在线性化前失权时失败关闭并保留原线程。
+第二项验证 owner token、generation、跨 thread 单调 claim、运行态 owner 门禁、卸载锚点、心跳、TTL 与同 thread 独占。第三项验证首次持久化只发布一个共享 load Promise、recovery replay 与全部 mutation 串行化、`getThread()` 返回 detached snapshot、持续 sidecar 故障恢复、生产 step 正向 replay、sidecar 深层结构校验、director 旧签名兼容、user append/mode/workspace/environment/model/title 保存失败回滚，以及删除缺少 guard 或在线性化前失权时失败关闭并保留原线程。
 
 ## 完整轻量门禁
 
@@ -126,8 +126,9 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 14:36:42 +08:00`。
-- 实现提交：`09e5b77549099f46855fbd406e51e248ea630a89`，tree `d1574650e8a61d1ba272c19d840f3f141630e513`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `80/80`，ConversationStore 为 `146/146`，multi-window routing 合同为 `PASS`，branding 为 22 文件，最终标记为 `FULL_GATE_OK`。
-- 组合动态测试证明过期 reservation 不能被迟到 heartbeat 续活；普通 `getThread()` / `listThreads()` 与 mutation 共用串行队列，只读取已提交或已回滚状态；`committed -> rollback` journal 首次改写失败后仍恢复内存、canonical 与 fresh Store；recovery snapshot 拒绝 UI 实际消费字段中的畸形 step、图片、截图计数、workspace、mode、environment 和 model strategy。
-- 该证据只绑定 exact implementation SHA；后续治理提交不得改动源码，fresh exact-head 独立审查仍是合并硬门。仓库无 pull-request CI，本地门禁不记为 CI。
+- 取证时间：`2026-08-14 15:29:43 +08:00`。
+- 实现提交：`7e69ca1a15fb631e232b1277dd7694103448ba23`，tree `d8fbf58bb70d395acc31451cb2a4a6cc24ae96a0`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding、官方 registry 高危审计和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `80/80`，ConversationStore 为 `181/181`，multi-window routing 合同为 `PASS`，branding 为 22 文件，12 路径边界与 lockfile SHA-256 均保持不变，最终标记为 `FULL_GATE_OK`。
+- 官方 registry 审计无 high/critical；保留现有 esbuild 开发依赖 1 个 moderate，修复建议要求 breaking upgrade，本任务不扩大到依赖升级。
+- 组合动态测试证明 `getThread()` 返回 detached snapshot，旧引用不能观察 provisional mutation；持续 sidecar 写入与清理故障后，fresh Store 以 committed journal 内的 rollback snapshot 精确识别已恢复 canonical，不复活消息或重新删除 thread；validator 对生产 text/think/tool/images/shot 结构正向 replay，并分别拒绝畸形 tool `id/status/shot`、必填 thread 字段和 committed rollback snapshot。
+- reviewer `019fff05-d76d-7673-98f5-9c4ccb2ab421` 对旧 final HEAD `4b2ab8b88aa175528d08c246d6e35b8e39f62560` 返回 `REQUEST_CHANGES`（P1=2、P2=1）；本实现门禁不替代 fresh exact-head 独立复审。仓库无 pull-request CI，本地门禁不记为 CI。
