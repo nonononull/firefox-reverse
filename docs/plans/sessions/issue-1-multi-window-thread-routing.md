@@ -183,21 +183,21 @@ change_contract:
       command_or_evidence_ref: build.md#完整轻量门禁
       expected_result: bundle, 13 selftests and branding all pass
   sibling_regression_guard:
-    status: pending
+    status: passed
     closeout_rule: passed-or-blocked-before-done
     exception_ref: none
   protected_feature_replay:
-    status: pending
+    status: passed
     known_good_features:
       - feature: thread reservation and current-thread recovery
         owner: AgentSession-and-mounted-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: pending-final-sha
+        post_change_replay_ref: git:426193d211255bf2e6c3e45ab796f3481554705a
         expected_result: reservation suite, mounted send/stream path and aggregate selftests pass; remount running thread fails closed
-        actual_result: pending
-        owner_visible_status: pending
-        regression_status: pending
+        actual_result: route contract PASS; reservation ALL PASS; 13/13 selftest files and branding PASS
+        owner_visible_status: not-applicable
+        regression_status: passed
     forbidden_ops_until_replay:
       - merge
       - claim-done
@@ -228,16 +228,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: pending-final-sha
+    result_ref: git:426193d211255bf2e6c3e45ab796f3481554705a#FULL_LIGHT_GATE_OK
   build:
     command_ref: build.md#侧栏构建
-    result_ref: pending-final-sha
+    result_ref: git:426193d211255bf2e6c3e45ab796f3481554705a#bundle-210.1kb
   review:
     command_ref: build.md#独立审查
     result_ref: pending
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: pending
+    result_ref: git:426193d211255bf2e6c3e45ab796f3481554705a#minimal-scope-ok
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -249,3 +249,6 @@ execution_evidence:
 - fork 基线与上游 v0.22.4 源码提交均为 `7a77a66ed8361f858cfa0b19fd8239b63b4535f0`；tag object 为 `95def86131787fd0945bea1d951623828d1a2987`。
 - 本任务不修改或启动本机已安装浏览器；fork 合并不等于安装包已更新。
 - 旧 70 提交分支和 PR #2 不删除、不续改；本分支只交付固定四条合同。
+- 实现取证时间：`2026-08-14 18:42:22 +08:00`；实现提交 `426193d211255bf2e6c3e45ab796f3481554705a`，tree `e1340a26214bab58a9b0d98691cf3a8adb06bec6`。
+- 唯一有效完整门禁一次通过：bundle `210.1kb`、13/13 自测文件、路由合同 `PASS`、reservation `ALL PASS`、branding 22；lockfile 未变，官方 registry 无 high/critical，保留既有 dev-only esbuild moderate。
+- 生产差异为 `+33/-69`，路由测试 60 行；`AgentSession.sys.mjs` 与 `ConversationStore.sys.mjs` 相对基线零差异。
