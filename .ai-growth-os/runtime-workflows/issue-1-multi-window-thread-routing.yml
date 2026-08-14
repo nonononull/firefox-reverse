@@ -13,7 +13,7 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
 approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:cbe29c2ed6d7cc523c463daeaf952ad0c4974ada"
+snapshot_ref: "git:fe75a8e023bacb34de6b7300c05018b2311e0665"
 task_scope_boundary: project-local-owner-scope
 task_current_state: final-review-delivery
 mutation_admission_status: project-local-owner-scope-required
@@ -26,5 +26,5 @@ verification_commands:
   - git diff --check
 rollout_draft:
   closeout_ref: issue-1-multi-window-thread-routing
-  validation_attribution: "2026-08-14 08:19:44 +08:00; implementation snapshot 228c00b4aec7702748711de91d3927cc46656aa4 tree 864c11a6e5faac2afc4621de21f4ab16cc9c7973; governance snapshot cbe29c2ed6d7cc523c463daeaf952ad0c4974ada tree e5329abc77cfc4707a8bf57fbb7e37b0f9660cb4; npm ci; sidebar bundle 220.9kb; 13/13 Node selftest files; reservation 60/60; ConversationStore 48/48; external running ownership gate, same-owner running remount, director legacy store signatures, shared cold load, failed user append rollback, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer 98e080540b823327f3e52ceed2b821784d3fc7b6 REQUEST_CHANGES P1=2 P2=1 by 019ffd82-1326-7e42-b2c0-2355aecf81ad retained; reservation API upgrade disclosed; fresh final exact-head rereview pending; no pull-request CI"
+  validation_attribution: "2026-08-14 08:57:28 +08:00; implementation snapshot f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a tree f68a14b1831444f2e163fdaa216b54f48a76806e; governance snapshot fe75a8e023bacb34de6b7300c05018b2311e0665 tree e93e730027883b68aee078fbcd36c0c4530bc920; npm ci; sidebar bundle 220.9kb; 13/13 Node selftest files; reservation 67/67; ConversationStore 60/60; running release owner anchor, same-owner remount, post-run TTL recovery, metadata rollback, external running ownership gate, director legacy signatures, shared cold load, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer 78464614385e6599dbdbafe3945938c5d2341c54 REQUEST_CHANGES P1=2 P2=1 by d5261c5b-1250-4855-99e4-e29f1185d0c0 retained; ac55b198 historical finding restored; reviewer 51befd7e-f709-449c-b919-72614292f4be stopped on upstream PR identity failure before source review; project-local default entry blocked on absent central registration and did not mutate AGOS; fresh final exact-head rereview pending; no pull-request CI"
   follow_up_required: true
