@@ -226,3 +226,12 @@
 - 验证：exact implementation SHA 上无重试通过 `npm ci`、bundle `222.4kb`、13/13 Node 自测、reservation `80/80`、ConversationStore `181/181`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`。审计仍报告现有 esbuild 开发依赖 1 个 moderate；其建议为 breaking upgrade，未在本任务升级。
 - 过程纠错：正式门禁前的纯身份预检因手工写错完整 SHA 立即停止，发生在 `npm ci`、构建和测试之前，未产生验证结果或工作树变化；随后以实际 exact HEAD 启动唯一正式无重试链。
 - 边界：没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；没有发布二进制或修改本机 `omni.ja`。PR 无 pull-request CI，以上仍是本地证据，必须由新的 exact-head reviewer 复审。
+
+## 2026-08-14：运行锚点未绑定 runEpoch，Store 返回值与 recovery 枚举仍可失败开放
+
+- 取证时间：`2026-08-14 16:18:12 +08:00`。
+- 现象：fresh reviewer `b9184c20-9b46-4527-bd54-9c8340d1325f` 对旧 final HEAD `095f1639b744625de74e91834de0f3a18a5cf4d6`、tree `c27d795225f0bad0f100eea4e17ffa9073074c63` 返回 `REQUEST_CHANGES`（P1=3、P2=1）。新鲜的同 owner 旧锚点没有绑定具体 `runEpoch`，可误接管随后启动的 external run；部分 mutation API 返回 `_mem` 内部对象；falsy 非法 recovery phase 被 `|| "rollback"` 接受；recovery validator 未限制 message role、tool name 和 tool status 的语义域。
+- 红测：旧实现的 reservation 自测稳定失败 2 项，覆盖旧锚点跨 run epoch 重挂载与 external run 不得继承 owner 身份；ConversationStore 新增 7 项返回值隔离和非法 phase/枚举负例，旧实现暴露内部引用并接受非法 phase；routing 生产模型合同保持通过。
+- 修复：实现提交 `4943ed8148946cde15e69474ac0b1de2e7d71f34`、tree `d8ea93a524721ea95c8b994de53fa4e251e387e0` 将 reservation 锚点绑定精确 `runEpoch`，UI 启动 run 时传入 `owner + generation + claim`，external run 不携带 reservation 身份；所有返回 thread 的 mutation API 改为 detached snapshot；只有 `phase === undefined` 才兼容旧 rollback sidecar；recovery 仅接受 `user/assistant`，tool 必须有非空 name，status 仅接受 `running/ok/err`。
+- 验证：exact implementation SHA 上无重试通过 `npm ci`、bundle `222.5kb`、13/13 Node 自测、reservation `83/83`、ConversationStore `202/202`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`。审计仍仅报告现有 esbuild 开发依赖 1 个 moderate，未做 breaking upgrade。
+- 边界：owner-scope 只允许 accepted-run epoch 与 reservation 的绑定，不授权其它 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁变更；没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端，也没有发布二进制或修改本机 `omni.ja`。仓库仍为 `no-PR-CI`，必须由新的 exact-head reviewer 复审。

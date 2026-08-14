@@ -41,7 +41,7 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-conversations.mjs
 - React 删除入口必须统一调用生产 `deleteThreadForSelection()`；自测直接执行该 helper，覆盖当前/非当前删除的认领或续约、失败保留、成功释放与参数路由。非当前历史删除必须发布最新 claim 后临时认领；当前 thread 删除必须续约验证自己已持有的精确 reservation，不得用可能低于最高值的旧 claim 重新认领。
 - 初始化、新对话和历史打开在第一个异步读取前登记选择 intent；相同 thread ID/revision 下的更新 intent 也会淘汰旧异步结果。
 - 初始化只认领空闲历史，或由同一稳定 owner 预留且正在运行的 thread；无 reservation 的外部运行 thread 和其它 owner 的运行 thread 必须失败关闭。认领期间才进入运行态的候选必须释放并新建当前窗口 thread。
-- 运行 thread 在正常 unmount/pagehide 时保留不续时的 owner 锚点：同 owner 新 generation 可立即重挂载，其他 owner 在运行期间继续失败关闭；任务结束且 TTL 过期后才允许回收。
+- 运行 thread 在正常 unmount/pagehide 时保留不续时的 owner 锚点，并把锚点绑定到被该 reservation 接受的精确 `runEpoch`：同 owner 新 generation 只能重挂载同一轮 run；后来启动的 external run 即使仍在 TTL 内也必须失败关闭。其他 owner 在运行期间继续失败关闭，任务结束且 TTL 过期后才允许回收。
 - `releaseThread()` 的正常释放与临时放弃必须区分：正常卸载继续保留运行中 owner 锚点；初始化、历史读取或非当前删除尚未绑定的临时 claim 若在竞态窗口进入 running，必须以 `abandonRunning=true` 清除锚点。同 owner 不能借该临时 claim 重挂载外部任务，任务结束后也无需等待不存在的锚点 TTL。
 - 新 generation 已发布但尚未接管 reservation 时，旧 generation 仍必须能以 `abandonRunning=true` 精确清理自己持有的 `owner + generation + claim`；新 generation 已接管后，旧清理必须失败关闭且不能影响新 reservation。
 - 历史点击必须在认领前、异步读取内和 React 绑定前复核运行态；读取期间由外部 director 启动的 thread 必须失败关闭并放弃临时 claim，不能进入 busy 续看。
@@ -126,9 +126,9 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 15:29:43 +08:00`。
-- 实现提交：`7e69ca1a15fb631e232b1277dd7694103448ba23`，tree `d8fbf58bb70d395acc31451cb2a4a6cc24ae96a0`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding、官方 registry 高危审计和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `80/80`，ConversationStore 为 `181/181`，multi-window routing 合同为 `PASS`，branding 为 22 文件，12 路径边界与 lockfile SHA-256 均保持不变，最终标记为 `FULL_GATE_OK`。
+- 取证时间：`2026-08-14 16:15:32 +08:00`。
+- 实现提交：`4943ed8148946cde15e69474ac0b1de2e7d71f34`，tree `d8ea93a524721ea95c8b994de53fa4e251e387e0`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding、官方 registry 高危审计和 `git diff --check`，全部通过；bundle 为 `222.5kb`，thread reservation 为 `83/83`，ConversationStore 为 `202/202`，multi-window routing 合同为 `PASS`，branding 为 22 文件，12 路径边界与 lockfile SHA-256 均保持不变，最终标记为 `FULL_GATE_OK`。
 - 官方 registry 审计无 high/critical；保留现有 esbuild 开发依赖 1 个 moderate，修复建议要求 breaking upgrade，本任务不扩大到依赖升级。
-- 组合动态测试证明 `getThread()` 返回 detached snapshot，旧引用不能观察 provisional mutation；持续 sidecar 写入与清理故障后，fresh Store 以 committed journal 内的 rollback snapshot 精确识别已恢复 canonical，不复活消息或重新删除 thread；validator 对生产 text/think/tool/images/shot 结构正向 replay，并分别拒绝畸形 tool `id/status/shot`、必填 thread 字段和 committed rollback snapshot。
-- reviewer `019fff05-d76d-7673-98f5-9c4ccb2ab421` 对旧 final HEAD `4b2ab8b88aa175528d08c246d6e35b8e39f62560` 返回 `REQUEST_CHANGES`（P1=2、P2=1）；本实现门禁不替代 fresh exact-head 独立复审。仓库无 pull-request CI，本地门禁不记为 CI。
+- 组合动态测试证明 owner 锚点精确绑定已接受的 `runEpoch`，同 owner 不能把旧锚点用于后来启动的 external run；所有返回 thread 的 mutation API 均返回 detached snapshot；recovery 仅在 `phase` 缺失时兼容旧 rollback 记录，并拒绝 falsy 非法 phase、未知 message role、缺失 tool name 与未知 tool status。
+- reviewer `b9184c20-9b46-4527-bd54-9c8340d1325f` 对旧 final HEAD `095f1639b744625de74e91834de0f3a18a5cf4d6` 返回 `REQUEST_CHANGES`（P1=3、P2=1）；本实现门禁不替代 fresh exact-head 独立复审。仓库无 pull-request CI，本地门禁不记为 CI。

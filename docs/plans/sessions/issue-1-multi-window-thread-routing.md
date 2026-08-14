@@ -17,9 +17,9 @@ brainstorming_method: executor-native
 execution_contract: agos.execution-contract.v1
 command_source: project-build-docs
 implicit_tool_preconditions: forbidden
-scope_hash: sha256:259c3b3da6a2386152b09314e097cf7528bc45217b8125184c1b489790ca102e
+scope_hash: sha256:50166a6b059262375faafde39146f556732fb416313a8c11c950ee5bea404077
 owner_scope_ref: docs/plans/sessions/issue-1-multi-window-thread-routing.owner-scope.yml
-owner_scope_hash: sha256:259c3b3da6a2386152b09314e097cf7528bc45217b8125184c1b489790ca102e
+owner_scope_hash: sha256:50166a6b059262375faafde39146f556732fb416313a8c11c950ee5bea404077
 selected_business_path: github-issue-pr-merge
 verification_commands:
   - npm ci --prefix additions/browser/components/agent-sidebar
@@ -54,14 +54,15 @@ forbidden_operations:
   - mutate-pingbo-or-bet365
   - access-account-or-live-origin
   - modify-agent-session-outside-reservation-fence
-  - modify-agent-session-run-beyond-accepted-run-epoch-or-raw-tool-lock
+  - modify-agent-session-run-beyond-accepted-run-epoch-reservation-binding
+  - modify-agent-session-raw-tool-lock
 
 ## Approved Decision
 
-- 决策：保留 `AgentSession` 的稳定 owner、心跳、TTL、同 thread 独占和多 thread 并行；删除 `AgentPanel` 对其它窗口运行 thread 的自动 `openThread()` 接管，提示条点击改为 `newChat()`，并为同 owner 重挂载增加 generation 与 owner+generation 级单调 claim fence。初始化优先扫描 running 候选，由 owner fence 只重挂载本 owner 且锚点仍在 TTL 内的任务，再按更新时间认领空闲历史；历史点击遵守同一规则。运行中正常卸载保留 owner 锚点；尚未绑定的临时 claim 以显式 abandon 清除，且新 generation 仅发布未接管时允许旧 generation 精确清理自己的 claim。`AgentSession.run()` 只允许在实际接受新 run 的同步线性化点递增并通过既有 snapshot 暴露 `runEpoch`，不得改变执行、重入、持久化或 raw-tool 锁。guarded append/deletion 在 provisional canonical 前持久化 rollback sidecar，在用户消息启动前持久化 committed snapshot；删除在 sidecar 清理后再次验权，迟到创建清理复用同一 runEpoch 删除闸门；首次 replay 完成前读取和 mutation 都失败关闭。
+- 决策：保留 `AgentSession` 的稳定 owner、心跳、TTL、同 thread 独占和多 thread 并行；删除 `AgentPanel` 对其它窗口运行 thread 的自动 `openThread()` 接管，提示条点击改为 `newChat()`，并为同 owner 重挂载增加 generation 与 owner+generation 级单调 claim fence。初始化优先扫描 running 候选，由 owner fence 只重挂载本 owner 且锚点仍在 TTL 内、并与 reservation 接受的精确 `runEpoch` 一致的任务，再按更新时间认领空闲历史；历史点击遵守同一规则。运行中正常卸载保留 owner 锚点；尚未绑定的临时 claim 以显式 abandon 清除，且新 generation 仅发布未接管时允许旧 generation 精确清理自己的 claim。`AgentSession.run()` 只允许在实际接受新 run 的同步线性化点递增并通过既有 snapshot 暴露 `runEpoch`；只有携带精确 `owner + generation + claim` 的 UI run 才能把该 epoch 绑定到 reservation，external run 不继承旧锚点身份；不得改变其它执行、重入、持久化或 raw-tool 锁。guarded append/deletion 在 provisional canonical 前持久化 rollback sidecar，在用户消息启动前持久化 committed snapshot；删除在 sidecar 清理后再次验权，迟到创建清理复用同一 runEpoch 删除闸门；首次 replay 完成前读取和 mutation 都失败关闭。
 - 理由：UI 路由修复解决单任务观感；exact-head reviewer 进一步证明同 owner 旧挂载/旧 claim 可迟到影响更新操作，单看最新历史会漏掉本 owner 的运行锚点，过期同 owner 锚点还会错误授权后来启动的 external run，故在既有 reservation helper 上增加候选优先级与 TTL 新鲜度。删除保存期间的 external run 可以启动后快速回到 idle，因此授权 `AgentSession.run()` 增加唯一的 accepted-run epoch 观测，不授权其它执行路径变更。有效的新 claim 尝试在候选扫描前即发布，认领失败也会淘汰旧 claim；低 claim 禁止新认领，但可精确清理自己原有 reservation。journal 必须先于 provisional canonical，并在 `session.run()` 前从 rollback 转为 committed；replay 与 mutation 必须串行化，避免无历史任务、已启动消息被旧 sidecar 抹除、失败值夹带或迟到旧快照覆盖。
 - 删除组合：非当前历史使用最新 claim 临时认领；当前 thread 使用既有精确 claim 续约验证，不重新认领已低于 owner+generation 最高值的 claim。
-- 范围：fork 内 `AgentPanel`、`AgentSession` reservation fence 与 accepted-run epoch、`ConversationStore` 删除与 user append 线性化 guard、三份动态自测、聚合入口及本任务控制文档，完成 fork 内 Issue、PR、独立审查和 squash merge。
+- 范围：fork 内 `AgentPanel`、`AgentSession` reservation fence 与 accepted-run epoch reservation 绑定、`ConversationStore` 删除与 user append 线性化 guard、三份动态自测、聚合入口及本任务控制文档，完成 fork 内 Issue、PR、独立审查和 squash merge。
 - 拒绝方案：不实现双窗口编辑同一 thread，不实现只读跟随，不增加对外 MCP/worker 工具；内部只新增 generation-aware reservation 方法和 accepted-run epoch，不向公开上游提 PR，不发布或安装浏览器。
 
 ## Local Knowledge Lookup
@@ -231,15 +232,16 @@ change_contract:
     - git:c4bcf9ef1275b558db593a95530846eb3de53dce reviewer verdict is failed historical evidence, not final approval
     - git:606b94c5c0d80803acae5c3b56215eb4fd528667 reviewer verdict is failed historical evidence, not final approval
     - git:4b2ab8b88aa175528d08c246d6e35b8e39f62560 reviewer verdict is failed historical evidence, not final approval
+    - git:095f1639b744625de74e91834de0f3a18a5cf4d6 reviewer verdict is failed historical evidence, not final approval
     - reviewer 51befd7e-f709-449c-b919-72614292f4be resolved PR against upstream, failed the identity gate, and stopped before source review; its procedural REQUEST_CHANGES is not an implementation verdict
-    - 2026-08-14 源码 checkpoint 门禁只属于 git:7e69ca1a15fb631e232b1277dd7694103448ba23；治理提交后必须对 final exact HEAD/tree 重新审查
+    - 2026-08-14 源码 checkpoint 门禁只属于 git:4943ed8148946cde15e69474ac0b1de2e7d71f34；治理提交后必须对 final exact HEAD/tree 重新审查
   regression_checks:
     - surface: external-running-routing
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
       expected_result: no external openThread route; banner calls newChat; initialization scans all histories, prioritizes same-owner running remount, and skips external or other-owner running threads
     - surface: reservation-and-heartbeat
       command_or_evidence_ref: node selftest-thread-reservation.mjs
-      expected_result: generation fence、owner+generation 最高 claim、运行态 owner 门禁、TTL 内同 owner running remount、过期锚点拒绝后续 external run、过期 reservation 拒绝迟到 heartbeat、跨 generation 精确临时 claim abandon、失败尝试发布水位、附属目标、旧 reservation 清理与心跳全部通过
+      expected_result: generation fence、owner+generation 最高 claim、运行态 owner 门禁、TTL 内同 owner running remount 仅限 reservation 绑定的精确 runEpoch、旧锚点拒绝后来 external run、过期锚点拒绝后续 external run、过期 reservation 拒绝迟到 heartbeat、跨 generation 精确临时 claim abandon、失败尝试发布水位、附属目标、旧 reservation 清理与心跳全部通过
     - surface: sidebar-and-agent-tooling
       command_or_evidence_ref: build.md#完整轻量门禁
       expected_result: bundle, 13 selftests and branding all pass
@@ -254,7 +256,7 @@ change_contract:
       expected_result: history click uses owner-aware acquisition, permits only an exact same-owner running remount, and rejects external/other-owner running tasks; an idle candidate that starts during read fails closed and abandons the temporary claim, while a cancelled same-owner running remount preserves its normal owner anchor
     - surface: director-compatibility-and-store-serialization
       command_or_evidence_ref: node selftest-conversations.mjs
-      expected_result: director legacy signatures remain callable; cold start publishes one load promise; failed user append, mode, workspace, environment, model, or title save cannot contaminate a later successful snapshot; user append cannot start before its first successful save and committed journal; append/deletion rollback journal precedes provisional canonical; committed sidecar preserves accepted user messages and embeds the exact rollback snapshot; recovery replay and ordinary reads serialize behind mutations, retry after failure, accept real production text/think/tool/images/shot structures, reject isolated malformed UI-consumed fields, and restore canonical state before a fresh Store accepts it
+      expected_result: director legacy signatures remain callable; cold start publishes one load promise; all thread-returning mutation APIs return detached snapshots; failed user append, mode, workspace, environment, model, or title save cannot contaminate a later successful snapshot; user append cannot start before its first successful save and committed journal; append/deletion rollback journal precedes provisional canonical; committed sidecar preserves accepted user messages and embeds the exact rollback snapshot; recovery replay and ordinary reads serialize behind mutations, retry after failure, accept real production text/think/tool/images/shot structures, reject falsy-but-present phases, unknown roles, missing tool names, unknown tool statuses and isolated malformed UI-consumed fields, and restore canonical state before a fresh Store accepts it
     - surface: authoritative-send-configuration
       command_or_evidence_ref: node selftest-multi-window-routing.mjs
       expected_result: digest-time configuration changes reject stale sends; default auto cannot overwrite a newer user mode intent; UI mode/workspace helpers always pass a live ownership guard
@@ -269,9 +271,9 @@ change_contract:
         owner: AgentSession-and-AgentPanel
         baseline_evidence_ref: v0.22.4 source and red-test replay
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: git:7e69ca1a15fb631e232b1277dd7694103448ba23-local-source-gate:2026-08-14T15:29:43+08:00
+        post_change_replay_ref: git:4943ed8148946cde15e69474ac0b1de2e7d71f34-local-source-gate:2026-08-14T16:15:32+08:00
         expected_result: reservation suite and aggregate selftests pass
-        actual_result: PowerShell 完整链无重试通过 sidebar bundle 222.4kb、13/13 Node 自测文件、branding 22 与官方 registry high/critical 审计；reservation 80/80、ConversationStore 181/181、routing PASS、detached getThread、持续 sidecar 故障后的 stale committed journal 判定、生产 steps 正向 replay、独立畸形字段负例、过期 reservation 拒绝迟到 heartbeat、跨 generation 精确临时 claim abandon、迟到创建 runEpoch 删除保护、user append 保存失败零启动与最终 guard 回滚、metadata 保存失败回滚、director 旧签名、共享冷启动、配置 intent 与生产删除 helper 动态合同通过；lockfile SHA-256 与 12 路径边界保持不变，最终标记 FULL_GATE_OK；现有 esbuild 开发依赖 1 个 moderate 未做 breaking upgrade
+        actual_result: PowerShell 完整链无重试通过 sidebar bundle 222.5kb、13/13 Node 自测文件、branding 22 与官方 registry high/critical 审计；reservation 83/83、ConversationStore 202/202、routing PASS、owner anchor 精确 runEpoch 绑定、external run 身份隔离、全部 mutation 返回 detached snapshot、falsy recovery phase 拒绝、message role 与 tool name/status 枚举校验、持续 sidecar 故障恢复、过期 reservation 拒绝迟到 heartbeat、跨 generation 精确临时 claim abandon、迟到创建 runEpoch 删除保护、user append 保存失败零启动与最终 guard 回滚、metadata 保存失败回滚、director 旧签名、共享冷启动、配置 intent 与生产删除 helper 动态合同通过；lockfile SHA-256 与 12 路径边界保持不变，最终标记 FULL_GATE_OK；现有 esbuild 开发依赖 1 个 moderate 未做 breaking upgrade
         owner_visible_status: passed
         regression_status: passed
     forbidden_ops_until_replay: []
@@ -302,17 +304,17 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#完整轻量门禁
-    result_ref: git:7e69ca1a15fb631e232b1277dd7694103448ba23-local-source-gate:2026-08-14T15:29:43+08:00-sidebar-and-13-selftests-pass
+    result_ref: git:4943ed8148946cde15e69474ac0b1de2e7d71f34-local-source-gate:2026-08-14T16:15:32+08:00-sidebar-and-13-selftests-pass
   build:
     command_ref: build.md#侧栏构建
-    result_ref: git:7e69ca1a15fb631e232b1277dd7694103448ba23-local-source-gate:2026-08-14T15:29:43+08:00-bundle-222.4kb
+    result_ref: git:4943ed8148946cde15e69474ac0b1de2e7d71f34-local-source-gate:2026-08-14T16:15:32+08:00-bundle-222.5kb
   review:
     command_ref: build.md#独立审查
-    result_ref: git:ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e-request-changes; git:e84e4b18ac250614979876b68e810a6fc2845d16-request-changes-p1-1-p2-2; git:bc639e34389331ebc950989e4b431160992b7f06-request-changes-p1-3-p2-1-reviewer-019ffd25-55db-7473-aab5-a42ac5c9b963; git:98e080540b823327f3e52ceed2b821784d3fc7b6-request-changes-p1-2-p2-1-reviewer-019ffd82-1326-7e42-b2c0-2355aecf81ad; git:78464614385e6599dbdbafe3945938c5d2341c54-request-changes-p1-2-p2-1-reviewer-d5261c5b-1250-4855-99e4-e29f1185d0c0; git:ee665652da982dc40c8dd8b71a692d48cb5aa8fd-request-changes-p1-2-p2-1-reviewer-7a7dc2f6-5372-444b-b9d2-0945acf807c5; git:4e0e246c9f7728b1ed366602b55d3c90daff2a02-request-changes-p1-2-p2-0-reviewer-d5fe1b3b-56d1-4e8c-b338-6d790631e32b; git:1a7b0511a74b7739ae258b59e9f907151365637b-request-changes-p1-2-p2-1-reviewer-ab60f7a9-7975-4375-a030-134f8fee95af; git:726aeaddb8c302fc75cc1e95d1fe10667b696d99-request-changes-p1-2-p2-0-reviewer-b58ed78e-22bc-4aca-afd3-ec1ca8b9fb40; git:7176a7df871eaaafe4c0be4b9e4752fcb6201fc0-request-changes-p1-3-p2-1-reviewer-510fe148-7da6-4cb5-bcea-9acfbc148da2; git:606b94c5c0d80803acae5c3b56215eb4fd528667-request-changes-p1-3-p2-1-reviewer-34cc68e3-c865-4af2-8536-f32b6b43ecb8; git:4b2ab8b88aa175528d08c246d6e35b8e39f62560-request-changes-p1-2-p2-1-reviewer-019fff05-d76d-7673-98f5-9c4ccb2ab421; reviewer:51befd7e-f709-449c-b919-72614292f4be-upstream-pr-resolution-gate-failure-no-source-review; git:f92d93752aecbec3edf33bce5486fe8d95935371-provider-503-no-verdict; reviewers:019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71-shutdown-no-verdict; fresh final exact-head rereview pending
-    latest_failed_result_ref: git:4b2ab8b88aa175528d08c246d6e35b8e39f62560-request-changes-p1-2-p2-1-reviewer-019fff05-d76d-7673-98f5-9c4ccb2ab421
+    result_ref: git:ac55b198a4222a55b2c5a45f6d9fa84dfd42e62e-request-changes; git:e84e4b18ac250614979876b68e810a6fc2845d16-request-changes-p1-1-p2-2; git:bc639e34389331ebc950989e4b431160992b7f06-request-changes-p1-3-p2-1-reviewer-019ffd25-55db-7473-aab5-a42ac5c9b963; git:98e080540b823327f3e52ceed2b821784d3fc7b6-request-changes-p1-2-p2-1-reviewer-019ffd82-1326-7e42-b2c0-2355aecf81ad; git:78464614385e6599dbdbafe3945938c5d2341c54-request-changes-p1-2-p2-1-reviewer-d5261c5b-1250-4855-99e4-e29f1185d0c0; git:ee665652da982dc40c8dd8b71a692d48cb5aa8fd-request-changes-p1-2-p2-1-reviewer-7a7dc2f6-5372-444b-b9d2-0945acf807c5; git:4e0e246c9f7728b1ed366602b55d3c90daff2a02-request-changes-p1-2-p2-0-reviewer-d5fe1b3b-56d1-4e8c-b338-6d790631e32b; git:1a7b0511a74b7739ae258b59e9f907151365637b-request-changes-p1-2-p2-1-reviewer-ab60f7a9-7975-4375-a030-134f8fee95af; git:726aeaddb8c302fc75cc1e95d1fe10667b696d99-request-changes-p1-2-p2-0-reviewer-b58ed78e-22bc-4aca-afd3-ec1ca8b9fb40; git:7176a7df871eaaafe4c0be4b9e4752fcb6201fc0-request-changes-p1-3-p2-1-reviewer-510fe148-7da6-4cb5-bcea-9acfbc148da2; git:606b94c5c0d80803acae5c3b56215eb4fd528667-request-changes-p1-3-p2-1-reviewer-34cc68e3-c865-4af2-8536-f32b6b43ecb8; git:4b2ab8b88aa175528d08c246d6e35b8e39f62560-request-changes-p1-2-p2-1-reviewer-019fff05-d76d-7673-98f5-9c4ccb2ab421; git:095f1639b744625de74e91834de0f3a18a5cf4d6-request-changes-p1-3-p2-1-reviewer-b9184c20-9b46-4527-bd54-9c8340d1325f; reviewer:51befd7e-f709-449c-b919-72614292f4be-upstream-pr-resolution-gate-failure-no-source-review; git:f92d93752aecbec3edf33bce5486fe8d95935371-provider-503-no-verdict; reviewers:019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71-shutdown-no-verdict; fresh final exact-head rereview pending
+    latest_failed_result_ref: git:095f1639b744625de74e91834de0f3a18a5cf4d6-request-changes-p1-3-p2-1-reviewer-b9184c20-9b46-4527-bd54-9c8340d1325f
   verification:
     command_ref: build.md#交付边界检查
-    result_ref: git:7e69ca1a15fb631e232b1277dd7694103448ba23-local-source-gate:2026-08-14T15:29:43+08:00-lockfile-ignored-bundle-and-12-file-boundary-pass
+    result_ref: git:4943ed8148946cde15e69474ac0b1de2e7d71f34-local-source-gate:2026-08-14T16:15:32+08:00-lockfile-ignored-bundle-and-12-file-boundary-pass
   closeout:
     command_ref: err.md#issue-1
     result_ref: pending-pr-and-squash-merge
@@ -346,3 +348,4 @@ execution_evidence:
 - `2026-08-14 13:25:44 +08:00`：fresh reviewer `a9f2fd73-b20d-45ee-81fb-3fca1d45704c` 对治理 HEAD `c4bcf9ef1275b558db593a95530846eb3de53dce`、tree `053625e76e29d4520e58ae17d9cfdb3060ed3563` 返回 `REQUEST_CHANGES`（P1=2、P2=1），指出过期同 owner 锚点可接管后续 external run、任务启动早于 recovery journal durable commit、message 深层结构仍未校验。实现 `d31d6d29ec112e8fe5d85737bb07cc679db1c0f3`、tree `d1bfb146f53d9b596430dd9b1051898a0acd06f2` 增加 running-anchor TTL、rollback/committed journal phase、onCommit 前 committed snapshot、删除清理后最终 guard、迟到创建 runEpoch 删除保护与 role/content/steps 深层校验。无重试完整门禁通过 bundle `222.4kb`、13/13、reservation `78/78`、ConversationStore `112/112`、multi-window routing `PASS`、branding 22 与 `git diff --check`，输出 `FULL_GATE_OK`；治理 snapshot 与 fresh final exact-head review 仍待完成。
 - `2026-08-14 14:36:42 +08:00`：fresh reviewer `34cc68e3-c865-4af2-8536-f32b6b43ecb8` 对治理 HEAD `606b94c5c0d80803acae5c3b56215eb4fd528667`、tree `fae9eea498cfe7e45cf9ad9c7c4a4423f2115e08` 返回 `REQUEST_CHANGES`（P1=3、P2=1），指出迟到 heartbeat 可续活过期 reservation、`committed -> rollback` journal 改写失败会丢失恢复、普通读取可观察 provisional `_mem`，以及 recovery 深层校验未覆盖 UI 实际字段。实现提交 `09e5b77549099f46855fbd406e51e248ea630a89`、tree `d1574650e8a61d1ba272c19d840f3f141630e513` 增加 TTL renew fence、读写共用串行队列、rollback journal 首次写失败恢复和 UI-consumed snapshot 深层校验。exact implementation SHA 上无重试完整门禁通过 bundle `222.4kb`、13/13、reservation `80/80`、ConversationStore `146/146`、multi-window routing `PASS`、branding 22、lockfile SHA-256 不变与 `git diff --check`，输出 `FULL_GATE_OK`；fresh final exact-head review 仍待治理提交后执行，仓库继续明确 `no-PR-CI`。
 - `2026-08-14 15:29:43 +08:00`：fresh reviewer `019fff05-d76d-7673-98f5-9c4ccb2ab421` 对旧 final HEAD `4b2ab8b88aa175528d08c246d6e35b8e39f62560`、tree `f10ee625c142233c592a7645bfb5ac6273faa30d` 返回 `REQUEST_CHANGES`（P1=2、P2=1），指出 `getThread()` 泄露内部可变引用、持续 sidecar 故障后的 stale committed journal 会覆盖已恢复 canonical，以及 validator 缺少隔离负例与生产正向 replay。实现提交 `7e69ca1a15fb631e232b1277dd7694103448ba23`、tree `d8fbf58bb70d395acc31451cb2a4a6cc24ae96a0` 增加 detached thread snapshot、committed rollback snapshot 判定和完整正反向故障注入。exact implementation SHA 上无重试完整门禁通过 bundle `222.4kb`、13/13、reservation `80/80`、ConversationStore `181/181`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`；esbuild 开发依赖 1 个 moderate 保持披露，fresh final exact-head review 仍待治理提交后执行。
+- `2026-08-14 16:18:12 +08:00`：fresh reviewer `b9184c20-9b46-4527-bd54-9c8340d1325f` 对旧 final HEAD `095f1639b744625de74e91834de0f3a18a5cf4d6`、tree `c27d795225f0bad0f100eea4e17ffa9073074c63` 返回 `REQUEST_CHANGES`（P1=3、P2=1），指出新鲜旧 owner 锚点未绑定具体 run epoch、mutation API 返回内部对象、falsy 非法 recovery phase 被兼容为 rollback，以及 recovery role/tool 枚举未失败关闭。实现提交 `4943ed8148946cde15e69474ac0b1de2e7d71f34`、tree `d8ea93a524721ea95c8b994de53fa4e251e387e0` 将 UI accepted run 的精确身份与 `runEpoch` 绑定到 reservation，隔离 external run，并让全部 thread mutation 返回 detached snapshot、严格区分缺失 phase 与非法 falsy phase、限制 role/tool name/status。exact implementation SHA 上无重试完整门禁通过 bundle `222.5kb`、13/13、reservation `83/83`、ConversationStore `202/202`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`；fresh final exact-head review 仍待治理提交后执行。
