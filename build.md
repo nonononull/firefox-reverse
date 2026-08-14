@@ -124,8 +124,8 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 10:27:35 +08:00`。
-- 实现提交：`c718298bfa315a188ab6b5e010110a387a234688`，tree `aae7962d791897adb0cac6925f5986c23edb9ab9`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `221.6kb`，thread reservation 为 `75/75`，ConversationStore 为 `65/65`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
-- 组合动态测试证明旧 generation 只能精确 abandon 自己尚未被接管的临时 claim，新 generation 接管后旧清理失败关闭；user append 在保存失败时零启动，并在保存期间失权时持久化回滚后零启动。
+- 取证时间：`2026-08-14 11:21:40 +08:00`。
+- 实现提交：`42846c64f6cada240ce53c7c86a0d20430806261`，tree `a014757038fbdb3ad975fb78d189e8a9bc2d9988`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.1kb`，thread reservation 为 `75/75`，ConversationStore 为 `78/78`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
+- 组合动态测试证明初始化会跳过其它 owner 的较新任务并优先重挂载本 owner 的 running thread；历史点击只允许同 owner 精确重挂载；删除保存期间启动的 external run 会触发持久化回滚；append/deletion 回滚二次保存失败会隔离后续 mutation，直到恢复快照成功落盘。
 - 该证据只绑定实现快照；治理提交后的 fresh exact-head 独立审查仍是合并硬门，仓库无 pull-request CI。

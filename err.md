@@ -164,3 +164,12 @@
 - 修复：实现提交 `c718298bfa315a188ab6b5e010110a387a234688`、tree `aae7962d791897adb0cac6925f5986c23edb9ab9` 仅对显式 `abandonRunning=true` 放宽当前 generation 前置，并继续要求 reservation 精确匹配 `owner + generation + claim`。user append 先保存，再在最终同步 ownership guard 后无 `await` 调用 `session.run()`；最终 guard 或启动失败时回滚并重新持久化。
 - 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `221.6kb`、13/13 Node 自测文件、thread reservation `75/75`、ConversationStore `65/65`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
 - 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库无 PR workflow，本地门禁不是 CI，治理提交后仍需 fresh final exact-head reviewer 返回 0/0/0。
+
+## 2026-08-14：初始化遗漏本 owner 运行线程，删除与回滚保存仍有竞态
+
+- 取证时间：`2026-08-14 11:21:40 +08:00`。
+- 现象：fresh reviewer `ab60f7a9-7975-4375-a030-134f8fee95af` 对治理 HEAD `1a7b0511a74b7739ae258b59e9f907151365637b`、tree `bc6efaf652926a417349effc63cdde7c1345f7ad` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。初始化只尝试最近的 `list[0]`，可能因其它窗口较新的任务而漏掉本 owner 的 running anchor；历史点击也无条件拒绝 running thread。删除只在持久化前复核 guard，保存期间启动的 external run 可留下无历史任务；append 回滚的第二次保存失败后没有隔离恢复状态。
+- 红测：routing 动态构造 `[其它 owner 较新 running, 本 owner 较旧 running]`，并让 external run 在删除 `_save()` 阻塞期间启动；ConversationStore 故障注入让 append 与 deletion 的回滚保存失败，再让恢复保存连续失败，证明恢复完成前必须阻断新 mutation。旧实现分别因缺少 preferred helper、删除未拒绝以及恢复写晚于新 mutation 而稳定失败。
+- 修复：实现提交 `42846c64f6cada240ce53c7c86a0d20430806261`、tree `a014757038fbdb3ad975fb78d189e8a9bc2d9988` 新增内部 `acquirePreferredExistingThread()`，先尝试 running 候选并由既有 owner fence 只允许本 owner 重挂载，再按列表顺序认领空闲历史；历史打开复用同一 helper 并区分合法 remount 与临时 claim。`ConversationStore.deleteThread()` 在保存后同步复核 guard，失权时恢复并再次保存；append/deletion 的回滚保存失败设置恢复门，后续 mutation 必须先成功写回恢复快照。
+- 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `222.1kb`、13/13 Node 自测文件、thread reservation `75/75`、ConversationStore `78/78`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
+- 边界：该批只修改 `AgentPanel.jsx`、`ConversationStore.sys.mjs` 与两份自测；未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 PR workflow，仍需治理提交后的 fresh exact-head reviewer 返回 0/0/0。
