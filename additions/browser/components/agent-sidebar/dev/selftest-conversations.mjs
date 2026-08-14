@@ -461,12 +461,43 @@ try {
 
   const appendResult = await store.appendMessage(
     created.id,
-    { role: "user", content: "已授权消息" },
-    () => true,
+    {
+      role: "user",
+      content: "已授权消息",
+      steps: [{ kind: "tool", id: "step-1", name: "inspect", status: "ok", images: ["before"] }],
+    },
+    thread => {
+      thread.title = "guard 篡改";
+      return true;
+    },
+    thread => {
+      thread.title = "commit 篡改";
+      thread.messages.push({ role: "assistant", content: "绕过队列" });
+    },
   );
   appendResult.messages.push({ role: "user", content: "外部夹带" });
+  appendResult.messages[0].steps[0].images.push("return-tamper");
   authoritative = await store.getThread(created.id);
-  ok(authoritative.messages.length === 1 && authoritative.messages[0].content === "已授权消息", "appendMessage 返回 detached snapshot");
+  ok(
+    authoritative.title === "已授权消息" && authoritative.messages.length === 1 &&
+      authoritative.messages[0].content === "已授权消息" &&
+      authoritative.messages[0].steps[0].images.length === 1,
+    "appendMessage guard、commit 与返回值均使用 detached snapshot",
+  );
+
+  const inputSteps = [{ kind: "tool", id: "step-2", name: "trace", status: "ok", images: ["original"] }];
+  await store.appendMessage(
+    created.id,
+    { role: "assistant", content: "带步骤", steps: inputSteps },
+  );
+  inputSteps[0].status = "err";
+  inputSteps[0].images.push("input-tamper");
+  authoritative = await store.getThread(created.id);
+  const storedStep = authoritative.messages.find(message => message.content === "带步骤")?.steps?.[0];
+  ok(
+    storedStep?.status === "ok" && storedStep.images.length === 1,
+    "appendMessage 深拷贝调用方 steps 输入",
+  );
 
   const renameResult = await store.renameThread(created.id, "权威标题");
   renameResult.title = "外部标题";

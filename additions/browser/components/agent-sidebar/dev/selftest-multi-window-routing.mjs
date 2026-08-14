@@ -106,6 +106,16 @@ const renewOwnedThread = sourceFunction(
   { reservationOwnerToken, isReservationOwnerCurrent },
 );
 const currentThreadRunEpoch = sourceFunction("currentThreadRunEpoch", "function");
+const ownsRunningThread = sourceFunction(
+  "ownsRunningThread",
+  "function",
+  { currentThreadRunEpoch, renewOwnedThread },
+);
+const readOwnedRunningThread = sourceFunction(
+  "readOwnedRunningThread",
+  "async function",
+  { currentThreadRunEpoch, ownsRunningThread },
+);
 const deleteOwnedThread = sourceFunction(
   "deleteOwnedThread",
   "async function",
@@ -202,6 +212,46 @@ assert.equal(
   1,
   "AgentPanel 的所有新建路径必须统一经过 createOwnedThread",
 );
+
+// 当前 thread 只有在 reservation 与同一 run epoch 前后都精确匹配时才能进入续看。
+{
+  const state = { running: true, runEpoch: 1 };
+  const session = {
+    isRunning() { return state.running; },
+    getState() { return { ...state }; },
+    renewThread(_id, owner, generation, claim) {
+      return owner === "window-a" && generation === 1 && claim === 1 && state.runEpoch === 1;
+    },
+  };
+  const reservation = { owner: "window-a", generation: 1, claim: 1 };
+  const exact = await readOwnedRunningThread(
+    { async getThread() { return { id: "current", messages: [] }; } },
+    session,
+    "current",
+    reservation,
+    () => true,
+  );
+  assert.equal(exact?.id, "current", "精确 owner 与 run epoch 可续看当前任务");
+
+  let releaseRead;
+  const readGate = new Promise(resolve => { releaseRead = resolve; });
+  const raced = readOwnedRunningThread(
+    { async getThread() { await readGate; return { id: "current", messages: [] }; } },
+    session,
+    "current",
+    reservation,
+    () => true,
+  );
+  state.runEpoch = 2;
+  releaseRead();
+  assert.equal(await raced, null, "读取期间切换为 external run 时不得进入续看");
+
+  assert.equal(
+    ownsRunningThread(session, "current", reservation, 1),
+    false,
+    "external run 不得获得停止权限",
+  );
+}
 
 function makeClaimSession() {
   const generations = new Map();
@@ -1582,5 +1632,12 @@ assert.equal(
 );
 
 assert.match(externalVisibility, /stopped\s*\|\|\s*!sameSelection\s*\(/);
+assert.match(
+  externalVisibility,
+  /await readOwnedRunningThread\s*\(/,
+  "外部可见性 effect 必须经过动态验证的精确 run 所有权闸门",
+);
+const stopRunSource = section("function stopRun()", "async function newChat()");
+assert.match(stopRunSource, /ownsRunningThread\s*\(/, "停止入口必须复核精确 run 所有权");
 
 console.log("multi-window routing contract: PASS");

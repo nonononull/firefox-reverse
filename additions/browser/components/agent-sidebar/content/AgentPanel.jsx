@@ -749,6 +749,35 @@ function currentThreadRunEpoch(session, threadId) {
   }
 }
 
+function ownsRunningThread(session, threadId, reservation, expectedRunEpoch = null) {
+  if (!session || typeof session.isRunning !== "function" || !session.isRunning(threadId)) {
+    return false;
+  }
+  const runEpoch = currentThreadRunEpoch(session, threadId);
+  if (runEpoch === null || (expectedRunEpoch !== null && runEpoch !== expectedRunEpoch)) {
+    return false;
+  }
+  if (!renewOwnedThread(session, threadId, reservation, () => {})) {
+    return false;
+  }
+  return session.isRunning(threadId) && currentThreadRunEpoch(session, threadId) === runEpoch;
+}
+
+async function readOwnedRunningThread(conversations, session, threadId, reservation, canKeep = () => true) {
+  if (!conversations || typeof conversations.getThread !== "function") {
+    throw new Error("会话存储接口不完整，已拒绝续看运行任务。");
+  }
+  const runEpoch = currentThreadRunEpoch(session, threadId);
+  if (runEpoch === null || !ownsRunningThread(session, threadId, reservation, runEpoch)) {
+    return null;
+  }
+  const thread = await conversations.getThread(threadId);
+  if (!thread || canKeep() !== true || !ownsRunningThread(session, threadId, reservation, runEpoch)) {
+    return null;
+  }
+  return thread;
+}
+
 async function deleteOwnedThread(
   conversations,
   session,
@@ -1001,7 +1030,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
 
   // 续看：mount/切线程时若该线程仍在后台跑，置 busy → 启动下面的轮询续看（引擎从未中断）。
   useEffect(() => {
-    if (session && currentId && session.isRunning(currentId)) {
+    const selection = { ...selectionRef.current };
+    const reservation = reservationForSelection(reservationRef.current, selection);
+    const runEpoch = currentThreadRunEpoch(session, currentId);
+    if (currentId && runEpoch !== null &&
+        ownsRunningThread(session, currentId, reservation, runEpoch)) {
       setBusy(true);
     }
   }, [session, currentId]);
@@ -1148,6 +1181,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     }
     let disposed = false;
     const effectSelection = { ...selectionRef.current };
+    const effectReservation = reservationForSelection(reservationRef.current, effectSelection);
+    const effectRunEpoch = currentThreadRunEpoch(session, currentId);
     let timer = null;
     let lastCkpt = 0; // 已处理到的 checkpoint 序号（本轮起始为 0）
     const tick = async () => {
@@ -1156,6 +1191,16 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       }
       const snap = session.getState(currentId);
       if (snap && snap.running) {
+        if (!ownsRunningThread(session, currentId, effectReservation, effectRunEpoch)) {
+          const external = typeof session.listRunning === "function"
+            ? (session.listRunning() || []).find(item => item?.id === currentId)
+            : null;
+          setBusy(false);
+          if (external) {
+            setExtRunning(external);
+          }
+          return;
+        }
         // 上下文压缩落盘了一条 checkpoint 回复 → 从 store 重载历史(新气泡出现)，live 区随即显示新段。
         if ((snap.checkpointSeq || 0) > lastCkpt) {
           lastCkpt = snap.checkpointSeq;
@@ -1239,24 +1284,35 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         }
         const observedSelection = { ...selectionRef.current };
         const running = session.listRunning() || [];
-        // ① 自愈：停在一条在跑的会话却没 busy → 补绑目录 + 补开流式
-        if (currentId && !busy && running.some(r => r.id === currentId)) {
+        // ① 自愈：只续看当前窗口精确持有的 run；external run 留给提示条 + newChat。
+        const currentRun = currentId ? running.find(r => r.id === currentId) : null;
+        let externalCurrent = null;
+        if (currentRun && !busy) {
+          const currentReservation = reservationForSelection(reservationRef.current, observedSelection);
           try {
-            const t = await conversations.getThread(currentId);
+            const t = await readOwnedRunningThread(
+              conversations,
+              session,
+              currentId,
+              currentReservation,
+              () => !stopped && sameSelection(selectionRef.current, observedSelection),
+            );
             if (stopped || !sameSelection(selectionRef.current, observedSelection)) {
               return;
             }
             if (t) {
               bindWorkspace(effectiveWorkspace(t));
               setMode((t && t.mode) || null);
+              setBusy(true); // 启「续看」流式轮询 useEffect（deps 含 busy）
+            } else if (session.isRunning(currentId)) {
+              externalCurrent = (session.listRunning() || []).find(r => r?.id === currentId) || currentRun;
             }
           } catch (_e) { /* ignore */ }
-          if (stopped || !sameSelection(selectionRef.current, observedSelection)) {
-            return;
-          }
-          setBusy(true); // 启「续看」流式轮询 useEffect（deps 含 busy）
         }
         const others = running.filter(r => r && r.id && r.id !== currentId);
+        if (externalCurrent && !others.some(r => r.id === externalCurrent.id)) {
+          others.unshift(externalCurrent);
+        }
         const runKey = others.map(r => r.id).sort().join(",");
         if (runKey !== lastRunKey) {
           lastRunKey = runKey;
@@ -1730,7 +1786,21 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   function stopRun() {
     try {
       if (session && currentId) {
-        session.stop(currentId);
+        const selection = { ...selectionRef.current };
+        const reservation = reservationForSelection(reservationRef.current, selection);
+        const runEpoch = currentThreadRunEpoch(session, currentId);
+        if (runEpoch !== null && ownsRunningThread(session, currentId, reservation, runEpoch)) {
+          session.stop(currentId);
+        } else {
+          const external = typeof session.listRunning === "function"
+            ? (session.listRunning() || []).find(item => item?.id === currentId)
+            : null;
+          setBusy(false);
+          if (external) {
+            setExtRunning(external);
+          }
+          setError("当前运行任务不属于本窗口，请在原窗口停止或新建对话。");
+        }
       } else if (abortRef.current) {
         abortRef.current.abort();
       }

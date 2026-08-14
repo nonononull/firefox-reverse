@@ -86,7 +86,7 @@ function requireAuthorization(guard, operation, id, value) {
   if (typeof guard !== "function") {
     throw new Error(`conversation ${operation} requires an ownership guard: ${id}`);
   }
-  if (guard(value) !== true) {
+  if (guard(cloneConversationThread(value)) !== true) {
     throw new Error(`conversation ${operation} authorization lost: ${id}`);
   }
 }
@@ -502,7 +502,11 @@ export class ConversationStore {
         title: t.title,
         updatedAt: t.updatedAt,
       };
-      const appended = { role: msg.role, content: msg.content, ...(msg.steps ? { steps: msg.steps } : {}) };
+      const appended = cloneConversationThread({
+        role: msg.role,
+        content: msg.content,
+        ...(msg.steps ? { steps: msg.steps } : {}),
+      });
       t.messages.push(appended);
       const mutationUpdatedAt = nextTs();
       t.updatedAt = mutationUpdatedAt;
@@ -545,7 +549,7 @@ export class ConversationStore {
           requireAuthorization(canAppend, "append", id, t);
         }
         if (onCommit) {
-          onCommit(t);
+          onCommit(cloneConversationThread(t));
         }
       } catch (e) {
         const rolledBack = rollback();

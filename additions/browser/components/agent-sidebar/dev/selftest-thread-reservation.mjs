@@ -216,6 +216,47 @@ function check(name, got, want) {
   check("快速失败 run 仍递增 epoch", runtime.getState("quick-failure").runEpoch, 1);
   check("快速失败 run 最终恢复 idle", runtime.getState("quick-failure").running, false);
   check("owner 启动的 run 绑定 reservation epoch", quickFailureState.reservation.runEpoch, 1);
+
+  for (const testCase of [
+    { name: "external run 不绑定 reservation epoch", options: {} },
+    {
+      name: "错误 owner 不绑定 reservation epoch",
+      options: { threadReservation: { owner: "winB", generation: 1, claim: 1 } },
+    },
+    {
+      name: "错误 generation 不绑定 reservation epoch",
+      options: { threadReservation: { owner: "winA", generation: 2, claim: 1 } },
+    },
+    {
+      name: "错误 claim 不绑定 reservation epoch",
+      options: { threadReservation: { owner: "winA", generation: 1, claim: 2 } },
+    },
+  ]) {
+    const threadId = `negative-${runtimeStates.size}`;
+    const state = getOrInit(threadId);
+    state.reservation = {
+      owner: "winA",
+      generation: 1,
+      claim: 1,
+      ts: Date.now(),
+      runEpoch: null,
+    };
+    await runtime.run.call(runtime, threadId, testCase.options);
+    check(testCase.name, state.reservation.runEpoch, null);
+  }
+
+  const expiredState = getOrInit("expired-reservation");
+  expiredState.reservation = {
+    owner: "winA",
+    generation: 1,
+    claim: 1,
+    ts: Date.now() - RESERVE_TTL_MS,
+    runEpoch: null,
+  };
+  await runtime.run.call(runtime, "expired-reservation", {
+    threadReservation: { owner: "winA", generation: 1, claim: 1 },
+  });
+  check("过期 reservation 不绑定 run epoch", expiredState.reservation.runEpoch, null);
 }
 
 // 1) 基本认领
