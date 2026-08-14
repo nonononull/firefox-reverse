@@ -42,6 +42,8 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-conversations.mjs
 - 初始化、新对话和历史打开在第一个异步读取前登记选择 intent；相同 thread ID/revision 下的更新 intent 也会淘汰旧异步结果。
 - 初始化只认领空闲历史，或由同一稳定 owner 预留且正在运行的 thread；无 reservation 的外部运行 thread 和其它 owner 的运行 thread 必须失败关闭。认领期间才进入运行态的候选必须释放并新建当前窗口 thread。
 - 运行 thread 在正常 unmount/pagehide 时保留不续时的 owner 锚点：同 owner 新 generation 可立即重挂载，其他 owner 在运行期间继续失败关闭；任务结束且 TTL 过期后才允许回收。
+- `releaseThread()` 的正常释放与临时放弃必须区分：正常卸载继续保留运行中 owner 锚点；初始化、历史读取或非当前删除尚未绑定的临时 claim 若在竞态窗口进入 running，必须以 `abandonRunning=true` 清除锚点。同 owner 不能借该临时 claim 重挂载外部任务，任务结束后也无需等待不存在的锚点 TTL。
+- 历史点击必须在认领前、异步读取内和 React 绑定前复核运行态；读取期间由外部 director 启动的 thread 必须失败关闭并放弃临时 claim，不能进入 busy 续看。
 - 发送链的异步准备阶段使用 selection intent 与精确 claim 复核；用户消息追加与 `session.run()` 必须位于同一个无 `await` 提交区间，并由 `ConversationStore` 在实际修改前执行同步 ownership guard。提交前失权必须零写入、零启动；启动后保存失败不得恢复输入或重复启动。
 - 发送在等待 `notes.digest()` 后必须重新读取权威 thread 的 mode/workspace；配置 intent、pending 标记或权威配置任一变化都淘汰旧发送。默认 `auto` 只能在线性化点确认 thread mode 仍为空时写入，不能覆盖后来发布的用户模式。
 - React 的 mode/workspace 写入统一经过显式 ownership guard helper；动态自测必须证明 helper 把权威 thread 交给 guard，且缺失 thread、拒绝 guard 和参数漏传均失败关闭。`frx-director-mcp` 的三参数 `createThread()`、无 guard mode/workspace/message 旧签名仍保持兼容。
@@ -94,7 +96,8 @@ Unix/release 环境可继续执行 `bash scripts/selftest-agent-tools.sh`。本�
 - `renewThread()` 返回 `false` 或抛错后不得继续使用旧 thread。
 - 初始化、新对话、历史打开、流式回载和外部运行探测的异步结果必须同时匹配 thread ID 与选择代际；选择型操作还必须匹配 intent。
 - 初始化不得认领无 reservation 的外部运行 thread；运行 thread 只有已有同 owner reservation 时才允许重挂载续看。运行态在认领期间变化时必须释放临时 reservation。
-- 运行中的精确 release 只能停止续时并保留 owner 锚点；同 owner 重挂载后旧 generation 仍不得影响新 reservation，其他 owner 只能在任务结束且 TTL 过期后回收。
+- 运行中的正常精确 release 只能停止续时并保留 owner 锚点；同 owner 重挂载后旧 generation 仍不得影响新 reservation，其他 owner 只能在任务结束且 TTL 过期后回收。尚未绑定的临时 claim 必须使用显式 abandon 语义清除运行中锚点，且动态测试的 fake 必须与生产语义一致。
+- 历史点击在读取期间或读取返回后的微任务窗口进入 running 时必须拒绝绑定；初始化、历史读取和非当前删除的组合测试都要证明临时 claim 已真正清除，而正常同 owner running remount 取消后仍保留可重挂载锚点。
 - 发送的异步准备阶段必须持续验证 intent 与精确 claim；用户消息落内存与 `session.run()` 之间不得有 `await`，且同步 guard 必须在消息修改前失败关闭。任务已启动后的持久化失败不得恢复输入或再次启动。
 - 迟到的新建 thread 必须按精确 claim 清理或移交；同 owner 的旧 generation/claim 不能 acquire、renew 或 release 更新挂载的 reservation。
 - 最高已发布 claim 必须属于 owner+generation，而非单个 thread；更高 claim 的有效认领尝试必须在候选扫描前推进水位，即使目标被占而失败，旧 claim 也不能在其它目标或当前 claim 释放后复活，但可清理自己原先持有的旧 reservation。
@@ -120,7 +123,8 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 08:57:28 +08:00`。
-- 实现提交：`f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a`，tree `f68a14b1831444f2e163fdaa216b54f48a76806e`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `220.9kb`，thread reservation 为 `67/67`，ConversationStore 为 `60/60`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
+- 取证时间：`2026-08-14 09:50:04 +08:00`。
+- 实现提交：`ce6bf30c585dede0ce76c56ba8d1bab6f0b0fe29`，tree `556e9e801ec2afab35e888073005f01e9370a4a8`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `221.5kb`，thread reservation 为 `70/70`，ConversationStore 为 `60/60`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
+- 组合动态测试使用与生产一致的 running-release fake，证明初始化、历史读取和非当前删除在 idle→running 竞态后放弃临时 claim；同时证明正常同 owner running remount 取消后仍保留锚点，可由下一挂载续看。
 - 该证据只绑定实现快照；治理提交后的 fresh exact-head 独立审查仍是合并硬门，仓库无 pull-request CI。

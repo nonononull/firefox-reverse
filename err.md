@@ -146,3 +146,12 @@
 - 现象：`invoke-agos-default-entry.ps1 -ReportOnly` 识别本仓 task authority 为 `project-local ready`，但因 AGOS 中央 task registration 不存在而返回 `AGOS_DEFAULT_ENTRY_STATUS=blocked`；该命令没有修改文件。
 - 处理：不创建、不消费、不修改 `ai-growth-os` 中央 backlog。继续使用已获牢大批准的 GitHub Issue #1、project-local session plan、owner-scope 与 task-local runtime workflow；`verify-session-plan.ps1` 和 `verify-runtime-workflow.ps1` 分别独立通过。
 - 边界：这是中央登记缺失下的 report-only 路由门，不是 Firefox 源码、测试或本地门禁失败；不得把它写成 AGOS default entry 已通过，也不得为收口本外部项目而修改 AGOS 中央仓。
+
+## 2026-08-14：临时 claim 被误当作正常运行中 owner 锚点
+
+- 取证时间：`2026-08-14 09:50:04 +08:00`。
+- 现象：fresh reviewer `7a7dc2f6-5372-444b-b9d2-0945acf807c5` 对 `ee665652da982dc40c8dd8b71a692d48cb5aa8fd`、tree `420cebc1a467a63ff188d0708ab99af7935e307b` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。历史点击在认领后的异步读取期间若由外部 director 启动，仍会绑定该 running thread；初始化和非当前删除虽然调用 release，但生产 `releaseThread()` 会为所有 running thread 保留 owner 锚点，导致临时 claim 被同 owner 后续挂载复用。测试 fake 又无条件清 reservation，掩盖了组合缺陷。
+- 红测：先把 routing fake 改成生产 running-anchor 语义，旧实现稳定在“运行态竞态必须释放临时预留”失败；reservation 新增显式 abandon 交错，旧实现稳定失败 2 项，分别证明同 owner 可错误重挂载、任务结束后仍受错误 TTL 阻塞。另加正常同 owner running remount 取消/重试用例，阻止修复误清正常锚点。
+- 修复：实现提交 `ce6bf30c585dede0ce76c56ba8d1bab6f0b0fe29`、tree `556e9e801ec2afab35e888073005f01e9370a4a8` 为内部 reservation release 增加默认关闭的 `abandonRunning` 参数。正常 pagehide/unmount 仍保留运行中 owner 锚点；尚未绑定的初始化、历史读取、创建和非当前删除临时 claim 可精确清除锚点。历史点击在认领前、读取内及绑定前复核运行态；同 owner 已有 running remount 的取消路径继续使用正常 release。
+- 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `221.5kb`、13/13 Node 自测文件、thread reservation `70/70`、ConversationStore `60/60`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
+- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库无 PR workflow，本地门禁不是 CI，治理提交后仍需 fresh final exact-head reviewer 返回 0/0/0。
