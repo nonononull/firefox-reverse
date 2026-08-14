@@ -182,3 +182,10 @@
 - 修复：实现提交 `62caad744ec56ab9b20ad2dbb13661afb65a5dca`、tree `886f4e360a73d2c2f272a3d8d0779a432e952821` 为每个 session 增加只读 snapshot 可见的单调 `runEpoch`，删除 guard 固定并复核该 epoch。append/deletion 回滚前把恢复快照原子写入 canonical 同目录 `.recovery` sidecar；当前实例恢复完成前阻断 mutation，fresh Store 优先恢复 canonical 并清理 sidecar，畸形或不支持的恢复 schema 失败关闭。
 - 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `222.4kb`、13/13 Node 自测文件、thread reservation `77/77`、ConversationStore `82/82`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
 - 边界：`AgentSession.run()` 只增加 accepted-run epoch，不改变执行、重入和持久化流程；未修改 `callTool()`、sessions map、raw-tool 锁或 director 兼容签名。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 PR workflow，仍需治理提交后的 fresh exact-head reviewer 返回 0/0/0。
+
+## 2026-08-14：runtime workflow validator 需要 PowerShell 7
+
+- 取证时间：`2026-08-14 12:09:51 +08:00`。
+- 现象：使用 Windows PowerShell 5.1 执行 AGOS `verify-runtime-workflow.ps1` 时，因其运行时没有 `System.IO.Path.GetRelativePath` 而失败。
+- 处理：不修改 AGOS 脚本；改用本机 `pwsh -NoLogo -NoProfile -File ...verify-runtime-workflow.ps1` 和相同参数，返回 `RUNTIME_WORKFLOW_VERIFY_OK`。
+- 边界：该错误属于验证执行器版本，不是 Firefox 源码、session plan 或 runtime workflow 内容失败。
