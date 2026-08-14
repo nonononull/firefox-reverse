@@ -173,3 +173,12 @@
 - 修复：实现提交 `42846c64f6cada240ce53c7c86a0d20430806261`、tree `a014757038fbdb3ad975fb78d189e8a9bc2d9988` 新增内部 `acquirePreferredExistingThread()`，先尝试 running 候选并由既有 owner fence 只允许本 owner 重挂载，再按列表顺序认领空闲历史；历史打开复用同一 helper 并区分合法 remount 与临时 claim。`ConversationStore.deleteThread()` 在保存后同步复核 guard，失权时恢复并再次保存；append/deletion 的回滚保存失败设置恢复门，后续 mutation 必须先成功写回恢复快照。
 - 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `222.1kb`、13/13 Node 自测文件、thread reservation `75/75`、ConversationStore `78/78`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
 - 边界：该批只修改 `AgentPanel.jsx`、`ConversationStore.sys.mjs` 与两份自测；未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 PR workflow，仍需治理提交后的 fresh exact-head reviewer 返回 0/0/0。
+
+## 2026-08-14：快速 external run 穿过删除采样，回滚责任无法跨重载恢复
+
+- 取证时间：`2026-08-14 12:04:31 +08:00`。
+- 现象：fresh reviewer `b58ed78e-22bc-4aca-afd3-ec1ca8b9fb40` 对治理 HEAD `726aeaddb8c302fc75cc1e95d1fe10667b696d99`、tree `038386c6435a51e9377c8753eb0acad1737e504b` 返回 `REQUEST_CHANGES`（P1=2、P2=0）。删除只在保存前后采样 `isRunning()`，external run 可在 `_save()` 阻塞期间启动并快速失败回到 idle；回滚保存失败又只设置内存标志，fresh Store 会接受含幽灵消息或已删除 thread 的 provisional canonical。
+- 红测：routing 在删除 `_save()` 阻塞期间执行 `run -> finish`，旧实现未拒绝删除；ConversationStore 使用持久化 fake IO，让 provisional save 成功、最终 guard 失权、canonical rollback 失败，再创建 fresh Store，旧实现分别重新读到未运行 user 消息和缺失 thread。生产 `AgentSession.run()` 还以 provider 初始化快速失败动态验证 accepted-run epoch。
+- 修复：实现提交 `62caad744ec56ab9b20ad2dbb13661afb65a5dca`、tree `886f4e360a73d2c2f272a3d8d0779a432e952821` 为每个 session 增加只读 snapshot 可见的单调 `runEpoch`，删除 guard 固定并复核该 epoch。append/deletion 回滚前把恢复快照原子写入 canonical 同目录 `.recovery` sidecar；当前实例恢复完成前阻断 mutation，fresh Store 优先恢复 canonical 并清理 sidecar，畸形或不支持的恢复 schema 失败关闭。
+- 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `222.4kb`、13/13 Node 自测文件、thread reservation `77/77`、ConversationStore `82/82`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
+- 边界：`AgentSession.run()` 只增加 accepted-run epoch，不改变执行、重入和持久化流程；未修改 `callTool()`、sessions map、raw-tool 锁或 director 兼容签名。未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 PR workflow，仍需治理提交后的 fresh exact-head reviewer 返回 0/0/0。

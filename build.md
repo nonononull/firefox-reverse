@@ -50,6 +50,8 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-conversations.mjs
 - React 的 mode/workspace 写入统一经过显式 ownership guard helper；动态自测必须证明 helper 把权威 thread 交给 guard，且缺失 thread、拒绝 guard 和参数漏传均失败关闭。`frx-director-mcp` 的三参数 `createThread()`、无 guard mode/workspace/message 旧签名仍保持兼容。
 - `session.run()` 抛错或调用后未进入 running 时必须回滚并重新持久化本次用户消息；user append 保存失败必须在启动前回滚消息、自动标题和 `updatedAt`，后续成功保存不得夹带失败 mutation。mode/workspace 保存失败同样必须条件回滚。
 - 历史删除先拒绝运行态，再取得独占 reservation 并复核运行态；`ConversationStore` 在实际修改线程列表前再次执行同步所有权 guard，加载期间失权、其它窗口占用或运行中的 thread 均不得删除。
+- 历史删除还必须固定 `AgentSession` 的单调 `runEpoch`；保存期间 external run 即使启动后快速失败并恢复 idle，最终 guard 也必须拒绝删除并恢复历史。
+- append/deletion 的 canonical 回滚保存失败时，恢复快照必须先写入同目录 `.recovery` sidecar；fresh `ConversationStore` 必须先恢复 canonical 并清理 sidecar，恢复完成前不得接受新 mutation。
 - 选择事务的 pending 标记只由匹配 intent 清除；旧事务结束不得清除更新事务。
 - 初始化、发送前建会话和“新对话”统一经过有界精确认领入口。
 
@@ -107,7 +109,7 @@ Unix/release 环境可继续执行 `bash scripts/selftest-agent-tools.sh`。本�
 - `ConversationStore` 必须保留 director 旧签名，同时用共享 load Promise 和写队列避免冷启动覆盖及并发失败值夹带；UI 不能借旧签名兼容绕过 ownership guard。
 - user append/mode/workspace/environment/model/title 保存失败必须条件回滚本次内存修改；后续成功快照不得夹带失败值。user append 只有保存成功且最终 guard 通过后才能启动；`session.run()` 抛错或未进入 running 必须回滚并持久化用户消息，且不能标记已启动。
 - 历史删除必须把同步所有权 guard 传到 `ConversationStore.deleteThread()`；guard 必须在 `_load()` 后、过滤线程列表前执行，失权时不能产生删除写入。
-- `AgentSession.sys.mjs` 的 reservation 协议已由旧两参数签名升级为 `owner + generation + claim` 并新增 `beginThreadReservation()`；旧式调用故意失败关闭。只允许继续修改该 reservation fence、运行态 owner 门禁与无副作用订阅清理；`run()`、`callTool()`、多 thread sessions map 和 raw-tool 全局保护保持原状。
+- `AgentSession.sys.mjs` 的 reservation 协议已由旧两参数签名升级为 `owner + generation + claim` 并新增 `beginThreadReservation()`；旧式调用故意失败关闭。`run()` 只允许新增 accepted-run 单调 epoch，不改变执行、重入或持久化流程；`callTool()`、多 thread sessions map 和 raw-tool 全局保护保持原状。
 - reviewer 结论必须绑定 exact HEAD/tree；最后一次源码变更后旧结论失效。
 
 ## 交付边界检查
@@ -124,8 +126,8 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 11:21:40 +08:00`。
-- 实现提交：`42846c64f6cada240ce53c7c86a0d20430806261`，tree `a014757038fbdb3ad975fb78d189e8a9bc2d9988`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.1kb`，thread reservation 为 `75/75`，ConversationStore 为 `78/78`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
-- 组合动态测试证明初始化会跳过其它 owner 的较新任务并优先重挂载本 owner 的 running thread；历史点击只允许同 owner 精确重挂载；删除保存期间启动的 external run 会触发持久化回滚；append/deletion 回滚二次保存失败会隔离后续 mutation，直到恢复快照成功落盘。
+- 取证时间：`2026-08-14 12:04:31 +08:00`。
+- 实现提交：`62caad744ec56ab9b20ad2dbb13661afb65a5dca`，tree `886f4e360a73d2c2f272a3d8d0779a432e952821`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `77/77`，ConversationStore 为 `82/82`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
+- 组合动态测试证明初始化会跳过其它 owner 的较新任务并优先重挂载本 owner 的 running thread；历史点击只允许同 owner 精确重挂载；删除保存期间持续或快速结束的 external run 均由单调 epoch 触发持久化回滚；append/deletion 回滚保存失败会留下 durable recovery sidecar，fresh Store 恢复 canonical 后才开放读写。
 - 该证据只绑定实现快照；治理提交后的 fresh exact-head 独立审查仍是合并硬门，仓库无 pull-request CI。
