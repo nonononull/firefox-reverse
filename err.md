@@ -189,3 +189,12 @@
 - 现象：使用 Windows PowerShell 5.1 执行 AGOS `verify-runtime-workflow.ps1` 时，因其运行时没有 `System.IO.Path.GetRelativePath` 而失败。
 - 处理：不修改 AGOS 脚本；改用本机 `pwsh -NoLogo -NoProfile -File ...verify-runtime-workflow.ps1` 和相同参数，返回 `RUNTIME_WORKFLOW_VERIFY_OK`。
 - 边界：该错误属于验证执行器版本，不是 Firefox 源码、session plan 或 runtime workflow 内容失败。
+
+## 2026-08-14：durable recovery journal 发布顺序与 replay 仍有崩溃窗口
+
+- 取证时间：`2026-08-14 12:46:54 +08:00`。
+- 现象：fresh reviewer `510fe148-7da6-4cb5-bcea-9acfbc148da2` 对治理 HEAD `7176a7df871eaaafe4c0be4b9e4752fcb6201fc0`、tree `03df54658eddb97e1fa7a4e023f8a61b2759fb80` 返回 `REQUEST_CHANGES`（P1=3、P2=1）。旧实现先写 provisional canonical、后写 recovery sidecar，崩溃窗口仍可留下幽灵 append 或永久误删；首次 replay 过早发布 `_mem`，并发读取或 mutation 可绕过、覆盖恢复；owner-scope 未授权 `AgentSession.run()` 中已实现的 accepted-run epoch；recovery snapshot 只做顶层浅校验。
+- 红测：新增 7 项故障注入断言在旧实现上稳定失败，覆盖 append/deletion journal 必须先于 canonical、首次 replay 阻断并发读取与 mutation、失败后第二次读取真实重试、迟到 replay 不覆盖后续 mutation，以及深层畸形 sidecar 不覆盖 canonical且保留供恢复。
+- 修复：实现提交 `2b87e2c2780c82d9faf2391c6be4c94bed8de8a3`、tree `f9146efb6a4bf2e1bab7a39bcf87c3761d2f3174` 在 guarded append/deletion 变更前先落 recovery sidecar；`_loadPromise` 优先于 `_mem` 并串行化首次 replay、读取与 mutation；replay 失败保持可重试；snapshot 校验扩展到 thread ID、标题、时间、消息数组和重复 ID。owner-scope 只授权 accepted-run epoch 观测，不授权其它执行、重入、持久化或 raw-tool 锁改动。
+- 验证纠错：第一次完整链误抄了不存在的 `selftest-tools.mjs`，命令在该点中断，因此整条链无效且不计入通过证据。随后严格按 `build.md` 的固定 13 项列表重新无重试执行，`npm ci`、bundle `222.4kb`、13/13、reservation `77/77`、ConversationStore `95/95`、multi-window routing `PASS`、branding 22 文件与 `git diff --check` 全部通过，最终标记 `FULL_GATE_OK`。
+- 边界：未启动或修改 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 PR workflow，本地门禁不是 CI。治理 snapshot 与 fresh exact-head reviewer 仍是合并硬门。

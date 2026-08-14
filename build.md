@@ -51,11 +51,11 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-conversations.mjs
 - `session.run()` 抛错或调用后未进入 running 时必须回滚并重新持久化本次用户消息；user append 保存失败必须在启动前回滚消息、自动标题和 `updatedAt`，后续成功保存不得夹带失败 mutation。mode/workspace 保存失败同样必须条件回滚。
 - 历史删除先拒绝运行态，再取得独占 reservation 并复核运行态；`ConversationStore` 在实际修改线程列表前再次执行同步所有权 guard，加载期间失权、其它窗口占用或运行中的 thread 均不得删除。
 - 历史删除还必须固定 `AgentSession` 的单调 `runEpoch`；保存期间 external run 即使启动后快速失败并恢复 idle，最终 guard 也必须拒绝删除并恢复历史。
-- append/deletion 的 canonical 回滚保存失败时，恢复快照必须先写入同目录 `.recovery` sidecar；fresh `ConversationStore` 必须先恢复 canonical 并清理 sidecar，恢复完成前不得接受新 mutation。
+- UI guarded append/deletion 必须在 provisional canonical 前先写入同目录 `.recovery` sidecar；提交成功后才清理 sidecar。fresh `ConversationStore` 必须先完成 canonical replay 并清理 sidecar，replay 失败时保留 sidecar且后续读取与 mutation 都失败关闭。
 - 选择事务的 pending 标记只由匹配 intent 清除；旧事务结束不得清除更新事务。
 - 初始化、发送前建会话和“新对话”统一经过有界精确认领入口。
 
-第二项验证 owner token、generation、跨 thread 单调 claim、运行态 owner 门禁、卸载锚点、心跳、TTL 与同 thread 独占。第三项验证首次持久化只发布一个共享 load Promise、全部写操作串行化、director 旧签名兼容、user append/mode/workspace/environment/model/title 保存失败回滚，以及删除缺少 guard 或在线性化前失权时失败关闭并保留原线程。
+第二项验证 owner token、generation、跨 thread 单调 claim、运行态 owner 门禁、卸载锚点、心跳、TTL 与同 thread 独占。第三项验证首次持久化只发布一个共享 load Promise、recovery replay 与全部 mutation 串行化、sidecar 深层结构校验、director 旧签名兼容、user append/mode/workspace/environment/model/title 保存失败回滚，以及删除缺少 guard 或在线性化前失权时失败关闭并保留原线程。
 
 ## 完整轻量门禁
 
@@ -126,8 +126,8 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 12:04:31 +08:00`。
-- 实现提交：`62caad744ec56ab9b20ad2dbb13661afb65a5dca`，tree `886f4e360a73d2c2f272a3d8d0779a432e952821`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `77/77`，ConversationStore 为 `82/82`，multi-window routing 合同为 `PASS`，branding 为 22 文件。
-- 组合动态测试证明初始化会跳过其它 owner 的较新任务并优先重挂载本 owner 的 running thread；历史点击只允许同 owner 精确重挂载；删除保存期间持续或快速结束的 external run 均由单调 epoch 触发持久化回滚；append/deletion 回滚保存失败会留下 durable recovery sidecar，fresh Store 恢复 canonical 后才开放读写。
+- 取证时间：`2026-08-14 12:46:54 +08:00`。
+- 实现提交：`2b87e2c2780c82d9faf2391c6be4c94bed8de8a3`，tree `f9146efb6a4bf2e1bab7a39bcf87c3761d2f3174`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `77/77`，ConversationStore 为 `95/95`，multi-window routing 合同为 `PASS`，branding 为 22 文件，最终标记为 `FULL_GATE_OK`。
+- 组合动态测试证明初始化会跳过其它 owner 的较新任务并优先重挂载本 owner 的 running thread；历史点击只允许同 owner 精确重挂载；删除保存期间持续或快速结束的 external run 均由单调 epoch 触发持久化回滚；append/deletion 在 provisional canonical 前先落 durable recovery sidecar；首次 replay 会阻断并发读取和 mutation、失败后可重试且不会被迟到旧快照覆盖；深层畸形 sidecar 保留并失败关闭。
 - 该证据只绑定实现快照；治理提交后的 fresh exact-head 独立审查仍是合并硬门，仓库无 pull-request CI。

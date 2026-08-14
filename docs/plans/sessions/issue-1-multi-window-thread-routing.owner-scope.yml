@@ -49,4 +49,4 @@ forbidden_ops:
   - mutate-pingbo-or-bet365
   - access-account-or-live-origin
   - modify-agent-session-outside-reservation-fence
-  - modify-agent-session-run-or-raw-tool-lock
+  - modify-agent-session-run-beyond-accepted-run-epoch-or-raw-tool-lock
