@@ -126,9 +126,10 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 16:15:32 +08:00`。
-- 实现提交：`4943ed8148946cde15e69474ac0b1de2e7d71f34`，tree `d8ea93a524721ea95c8b994de53fa4e251e387e0`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding、官方 registry 高危审计和 `git diff --check`，全部通过；bundle 为 `222.5kb`，thread reservation 为 `83/83`，ConversationStore 为 `202/202`，multi-window routing 合同为 `PASS`，branding 为 22 文件，12 路径边界与 lockfile SHA-256 均保持不变，最终标记为 `FULL_GATE_OK`。
+- 取证时间：`2026-08-14 17:02:31 +08:00`。
+- 实现提交：`fb2db7835624d9ca5dadabebd6a68a30ca9b3113`，tree `3c969432f20dfcf30eb6d92ecd6017c22584fade`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding、官方 registry 高危审计和 `git diff --check`，全部通过；bundle 为 `223.6kb`，thread reservation 为 `88/88`，ConversationStore 为 `203/203`，multi-window routing 合同为 `PASS`，branding 为 22 文件，12 路径边界与 lockfile SHA-256 均保持不变，最终标记为 `FULL_GATE_OK`。
 - 官方 registry 审计无 high/critical；保留现有 esbuild 开发依赖 1 个 moderate，修复建议要求 breaking upgrade，本任务不扩大到依赖升级。
-- 组合动态测试证明 owner 锚点精确绑定已接受的 `runEpoch`，同 owner 不能把旧锚点用于后来启动的 external run；所有返回 thread 的 mutation API 均返回 detached snapshot；recovery 仅在 `phase` 缺失时兼容旧 rollback 记录，并拒绝 falsy 非法 phase、未知 message role、缺失 tool name 与未知 tool status。
-- reviewer `b9184c20-9b46-4527-bd54-9c8340d1325f` 对旧 final HEAD `095f1639b744625de74e91834de0f3a18a5cf4d6` 返回 `REQUEST_CHANGES`（P1=3、P2=1）；本实现门禁不替代 fresh exact-head 独立复审。仓库无 pull-request CI，本地门禁不记为 CI。
+- 组合动态测试证明当前 thread 的自动续看、流式显示和停止入口都要求精确 `owner + generation + claim + runEpoch`；external run 只能进入提示条并调用 `newChat()`。生产 `run()` 的 external、错误 owner/generation/claim 与过期 TTL 负例均固定为不绑定 reservation epoch。
+- `ConversationStore` 深拷贝 `steps` 输入，并只向 ownership guard、commit 回调和 mutation 返回值暴露 detached snapshot；调用方不能绕过 mutation queue 修改 `_mem`。既有 recovery phase、message role 与 tool 字段失败关闭合同保持不变。
+- reviewer `518b26b3-1a04-42fe-94f4-7e224541361b` 对旧 final HEAD `7e4c7c72584b48d22e8bb0af2ed872c8c23c5201` 返回 `REQUEST_CHANGES`（P1=1、P2=2）；本实现门禁不替代 fresh exact-head 独立复审。仓库无 pull-request CI，本地门禁不记为 CI。

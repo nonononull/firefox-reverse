@@ -235,3 +235,12 @@
 - 修复：实现提交 `4943ed8148946cde15e69474ac0b1de2e7d71f34`、tree `d8ea93a524721ea95c8b994de53fa4e251e387e0` 将 reservation 锚点绑定精确 `runEpoch`，UI 启动 run 时传入 `owner + generation + claim`，external run 不携带 reservation 身份；所有返回 thread 的 mutation API 改为 detached snapshot；只有 `phase === undefined` 才兼容旧 rollback sidecar；recovery 仅接受 `user/assistant`，tool 必须有非空 name，status 仅接受 `running/ok/err`。
 - 验证：exact implementation SHA 上无重试通过 `npm ci`、bundle `222.5kb`、13/13 Node 自测、reservation `83/83`、ConversationStore `202/202`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`。审计仍仅报告现有 esbuild 开发依赖 1 个 moderate，未做 breaking upgrade。
 - 边界：owner-scope 只允许 accepted-run epoch 与 reservation 的绑定，不授权其它 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁变更；没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端，也没有发布二进制或修改本机 `omni.ja`。仓库仍为 `no-PR-CI`，必须由新的 exact-head reviewer 复审。
+
+## 2026-08-14：当前 external run 可进入 busy/stop，Store 仍保留调用方 steps 引用
+
+- 取证时间：`2026-08-14 17:02:31 +08:00`。
+- 现象：fresh reviewer `518b26b3-1a04-42fe-94f4-7e224541361b` 对旧 final HEAD `7e4c7c72584b48d22e8bb0af2ed872c8c23c5201`、tree `6fb4517cd7257c3a43f9411b387b1b13adc4a3b5` 返回 `REQUEST_CHANGES`（P1=1、P2=2）。1.5 秒 external visibility 探测可能早于 3 秒 heartbeat 发现失权，把当前 external run 置为 busy 并暴露停止按钮；生产 `run()` 只有精确身份正例；`appendMessage()` 仍保存调用方可变 `steps` 引用。
+- 红测：routing 动态执行前后两次精确 run ownership 复核，并在历史读取期间切换 `runEpoch`；reservation 直接执行生产 `run()`，覆盖 external、错误 owner/generation/claim 与过期 TTL；ConversationStore 让输入 steps、ownership guard、commit 回调和返回值分别尝试篡改权威 thread。旧实现缺 helper，且 Store 用例稳定失败。
+- 修复：实现提交 `fb2db7835624d9ca5dadabebd6a68a30ca9b3113`、tree `3c969432f20dfcf30eb6d92ecd6017c22584fade` 让 mount 续看、external visibility、80ms 流式轮询和停止入口复用同一精确 `owner + generation + claim + runEpoch` 闸门；失权的当前 run 只进入提示条，不再获得 stop 权限。Store 在入队前深拷贝消息，并向 guard/onCommit 传 detached snapshot。
+- 验证：exact implementation SHA 上无重试通过 `npm ci`、bundle `223.6kb`、13/13 Node 自测、reservation `88/88`、ConversationStore `203/203`、routing `PASS`、branding 22、官方 registry high/critical 审计、lockfile SHA-256 与 12 路径边界，输出 `FULL_GATE_OK`。审计仍仅报告既有 esbuild 开发依赖 1 个 moderate，未做 breaking upgrade。
+- 边界：未修改 `AgentSession.sys.mjs` 生产代码、`callTool()`、sessions map、raw-tool 锁、director 兼容签名、浏览器安装或 `omni.ja`；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库继续明确 `no-PR-CI`，必须由新的 final exact-head reviewer 返回 0/0/0 才可合并。
