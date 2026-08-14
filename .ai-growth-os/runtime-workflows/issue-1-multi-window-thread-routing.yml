@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
 approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:3196d7f0ac3c36210baef484689c6d8cb5d5d077"
+snapshot_ref: "git:03434aefd148d04cf8bf48f74f3ff87ca55c523c"
 task_scope_boundary: project-local-owner-scope
-task_current_state: scope-correction-pending-binding
+task_current_state: ready-for-minimal-implementation
 mutation_admission_status: project-local-owner-scope-required
 stop_gates:
   - session-plan-and-owner-scope-must-match-committed-snapshot
