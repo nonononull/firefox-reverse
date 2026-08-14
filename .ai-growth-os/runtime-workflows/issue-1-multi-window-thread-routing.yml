@@ -13,7 +13,7 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
 approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:2b0c6a743f9311ccd7543cd4c557dd845d187dbc"
+snapshot_ref: "git:cbe29c2ed6d7cc523c463daeaf952ad0c4974ada"
 task_scope_boundary: project-local-owner-scope
 task_current_state: final-review-delivery
 mutation_admission_status: project-local-owner-scope-required
@@ -26,5 +26,5 @@ verification_commands:
   - git diff --check
 rollout_draft:
   closeout_ref: issue-1-multi-window-thread-routing
-  validation_attribution: "2026-08-14 07:31:10 +08:00; implementation snapshot 69a514e76550adc8d563f739c0c9f132bb3aeb88 tree 9c0396e2d7d6fa100b7fea8b6ad58b4f1920d541; governance snapshot 2b0c6a743f9311ccd7543cd4c557dd845d187dbc tree 56a156b1f322820ee704fd6fc83c72d71060663c; npm ci; sidebar bundle 220.4kb; 13/13 Node selftest files; reservation 57/57; ConversationStore 42/42; director legacy signatures, shared cold load, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer bc639e34389331ebc950989e4b431160992b7f06 REQUEST_CHANGES P1=3 P2=1 by 019ffd25-55db-7473-aab5-a42ac5c9b963 retained; f92d937 provider 503 and reviewers 019ffcda-2437-7791-a95a-54cab6ca68a8,019ffcee-5f0d-7892-977e-eced1beb2c71 shutdown without verdict; fresh final exact-head rereview pending; no pull-request CI"
+  validation_attribution: "2026-08-14 08:19:44 +08:00; implementation snapshot 228c00b4aec7702748711de91d3927cc46656aa4 tree 864c11a6e5faac2afc4621de21f4ab16cc9c7973; governance snapshot cbe29c2ed6d7cc523c463daeaf952ad0c4974ada tree e5329abc77cfc4707a8bf57fbb7e37b0f9660cb4; npm ci; sidebar bundle 220.9kb; 13/13 Node selftest files; reservation 60/60; ConversationStore 48/48; external running ownership gate, same-owner running remount, director legacy store signatures, shared cold load, failed user append rollback, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer 98e080540b823327f3e52ceed2b821784d3fc7b6 REQUEST_CHANGES P1=2 P2=1 by 019ffd82-1326-7e42-b2c0-2355aecf81ad retained; reservation API upgrade disclosed; fresh final exact-head rereview pending; no pull-request CI"
   follow_up_required: true
