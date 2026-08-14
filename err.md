@@ -139,3 +139,10 @@
 - 修复：实现提交 `f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a`、tree `f68a14b1831444f2e163fdaa216b54f48a76806e` 让运行中的精确 release 保留不续时 owner 锚点，空闲 thread 仍立即释放；同 owner 新 generation 可重挂载，其他 owner 需等任务结束且既有 8 秒 TTL 过期。三类 Store setter 复用 mode/workspace 的 `previous + mutationUpdatedAt + 条件回滚` 语义。
 - 验证：无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `220.9kb`、13/13 Node 自测文件、thread reservation `67/67`、ConversationStore `60/60`、multi-window routing 合同、branding 22 文件和 `git diff --check` 全部通过。
 - 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库无 PR workflow，本地门禁不是 CI，治理提交后仍需 fresh exact-head reviewer 返回 0/0/0。
+
+## 2026-08-14：AGOS 默认入口拒绝未登记的中央 task
+
+- 取证时间：`2026-08-14 09:13:36 +08:00`。
+- 现象：`invoke-agos-default-entry.ps1 -ReportOnly` 识别本仓 task authority 为 `project-local ready`，但因 AGOS 中央 task registration 不存在而返回 `AGOS_DEFAULT_ENTRY_STATUS=blocked`；该命令没有修改文件。
+- 处理：不创建、不消费、不修改 `ai-growth-os` 中央 backlog。继续使用已获牢大批准的 GitHub Issue #1、project-local session plan、owner-scope 与 task-local runtime workflow；`verify-session-plan.ps1` 和 `verify-runtime-workflow.ps1` 分别独立通过。
+- 边界：这是中央登记缺失下的 report-only 路由门，不是 Firefox 源码、测试或本地门禁失败；不得把它写成 AGOS default entry 已通过，也不得为收口本外部项目而修改 AGOS 中央仓。
