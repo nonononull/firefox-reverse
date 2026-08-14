@@ -276,10 +276,6 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   const curTextRef = useRef(-1); // 当前正在流式追加的 text step 下标
   const curThinkRef = useRef(-1); // 当前正在流式追加的 think(思考) step 下标
   const [extRunning, setExtRunning] = useState(null); // 外部(MCP)驱动、本面板没在显示的会话（忙时横幅提示用）
-  const openThreadRef = useRef(null); // 最新 openThread 闭包，供 listRunning 定时器自动跟随（避免 effect deps 抖动）
-  const followingRef = useRef(false); // 自动跟随进行中（防重入，避免一轮没切完下一轮又发起）
-  const triedFollowRef = useRef(null); // 上次尝试跟随的会话 id（切不成=被别窗口占用时不再每 1.5s 刷错横幅）
-  const uiStateRef = useRef({ msgs: 0, input: "" }); // 给自动跟随读最新 UI 状态（不进 effect deps，防每次按键重建定时器）
 
   // 多窗口预留的 owner token：同一 chrome 窗口内复用（切到别的侧栏再切回=文档重建，但宿主窗口不变）→
   // 重挂载传同一 token → 立即重认领自己那条会话，不受心跳 TTL 影响。取不到宿主窗口则退化为 per-mount 随机
@@ -329,14 +325,18 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         }
         // 多窗口隔离：认领"最近且没被别的窗口占用"的线程续看；被占（另一窗口正用）或无历史 → 新建空线程给本窗口，
         // 确保两个浏览器窗口绝不绑同一条线程（否则对话/进度/工作目录全串）。
-        const latest = list.length > 0 ? list[0].id : null;
+        const latest = list.find(item => item && item.id &&
+          !(session && session.isRunning && session.isRunning(item.id)))?.id || null;
         let id = (latest && session && session.acquireThread) ? session.acquireThread([latest], ownerRef.current) : latest;
         let t = id ? await conversations.getThread(id) : null;
         if (!t) {
           t = await conversations.createThread(); // 本窗口独立的新空线程（默认不绑目录，需手动「打开目录」）
           id = t.id;
           if (session && session.acquireThread) {
-            session.acquireThread([id], ownerRef.current);
+            const got = session.acquireThread([id], ownerRef.current);
+            if (got !== id) {
+              throw new Error("新会话认领失败，请重试。");
+            }
           }
         }
         if (!cancelled && t) {
@@ -354,13 +354,6 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       cancelled = true;
     };
   }, [conversations, refreshThreads]);
-
-  // 续看：mount/切线程时若该线程仍在后台跑，置 busy → 启动下面的轮询续看（引擎从未中断）。
-  useEffect(() => {
-    if (session && currentId && session.isRunning(currentId)) {
-      setBusy(true);
-    }
-  }, [session, currentId]);
 
   // 多窗口隔离的**预留生命周期 + 心跳**：本侧栏显示 currentId 期间，定时 renew 续约证明本窗口还活着
   // （别的窗口在 TTL 内认领不到这条→不串对话）；切走/关闭时释放。**关键修复**：切到别的插件侧栏时
@@ -484,12 +477,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     };
   }, [session, currentId, busy, conversations, refreshThreads]);
 
-  // ── 外部 / MCP 驱动可见性（自愈续看 + 空闲自动跟随 + 忙时横幅）──
-  // ① 自愈：本面板已停在某条「引擎在跑」的会话（如 MCP 刚 createThread+run、挂载那刻 isRunning 还是
-  //    false 没进 busy）却没开流式 → 这里补开 busy（启「续看」轮询）+ 异步补绑工作目录（治"已在 MCP
-  //    会话上但界面静止、📁 没目录"——用户实测撞到的）。② 自动跟随：仅当面板「真正空闲中性」（没在跑/
-  //    没历史消息/没在输入）才自动切到别的在跑会话，否则只弹横幅——绝不把正在用 Agent / 想打字的人硬拽走。
-  //    ③ 横幅点击跟随。listRunning 是进程内 Map 遍历、开销极小；列表只在「在跑集合」变化时才刷。
+  // ── 外部 / MCP 驱动可见性 ──
+  // 当前挂载没有 busy 所有权时，即使 thread ID 相同也只提示，不自动续看或接管。
   useEffect(() => {
     if (!session || !session.listRunning) {
       return undefined;
@@ -497,55 +486,19 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     let timer = null;
     let stopped = false;
     let lastRunKey = "";
-    const tick = async () => {
+    const tick = () => {
       try {
         const running = session.listRunning() || [];
-        // ① 自愈：停在一条在跑的会话却没 busy → 补绑目录 + 补开流式
-        if (currentId && !busy && running.some(r => r.id === currentId)) {
-          try {
-            const t = await conversations.getThread(currentId);
-            if (t) {
-              bindWorkspace(effectiveWorkspace(t));
-              setMode((t && t.mode) || null);
-            }
-          } catch (_e) { /* ignore */ }
-          setBusy(true); // 启「续看」流式轮询 useEffect（deps 含 busy）
-        }
-        const others = running.filter(r => r && r.id && r.id !== currentId);
-        const runKey = others.map(r => r.id).sort().join(",");
+        const visible = running.filter(r => r && r.id && (r.id !== currentId || !busy));
+        const runKey = visible.map(r => r.id).sort().join(",");
         if (runKey !== lastRunKey) {
           lastRunKey = runKey;
-          if (others.length) {
+          if (visible.length) {
             refreshThreads(); // 仅当「别的在跑会话集合」变了才刷列表，避免每 1.5s 无谓 setState
           }
         }
-        if (!others.length) {
-          triedFollowRef.current = null;
-          setExtRunning(null);
-        } else {
-          const target = others[0];
-          const ui = uiStateRef.current;
-          // ② 只在「真正空闲中性」才自动切：没在跑 + 没历史消息 + 没在输入，否则只弹横幅（不抢人）
-          // 空闲=没在跑自己的回合(!busy) + 没在打字(!input)。停在哪条会话(哪怕有历史)都算空闲，
-          // 自动切到新的在跑会话；triedFollowRef 保证只切一次、用户切回别处不会被每秒拽回（转横幅）。
-          const eligible =
-            !busy &&
-            !String(ui.input || "").trim() &&
-            !!openThreadRef.current &&
-            !followingRef.current;
-          if (eligible && triedFollowRef.current !== target.id) {
-            triedFollowRef.current = target.id; // 试过这条；若没切成（被别窗口占用）下轮转横幅、不再每秒刷错
-            followingRef.current = true;
-            setExtRunning(null);
-            try {
-              await openThreadRef.current(target.id);
-            } finally {
-              followingRef.current = false;
-            }
-          } else {
-            setExtRunning(target); // 不够格自动切 / 已试过没切成 → 横幅提示
-          }
-        }
+        const target = visible[0] || null;
+        setExtRunning(target);
       } catch (_e) { /* 探测失败不影响面板 */ }
       if (!stopped) {
         timer = setTimeout(tick, 1500);
@@ -558,7 +511,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         clearTimeout(timer);
       }
     };
-  }, [session, currentId, busy, refreshThreads, conversations]);
+  }, [session, currentId, busy, refreshThreads]);
 
   // 自动跟随最新回复：仅当用户贴在底部时才滚到底（含流式 liveSteps 增长）；
   // 用户手动上滑离开底部 → 不再打扰；滑回底部 → 恢复跟随。
@@ -771,6 +724,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     if (!text || busy) {
       return;
     }
+    if (session && currentId && session.isRunning && session.isRunning(currentId)) {
+      setExtRunning({ id: currentId, nSteps: 0 });
+      setError("该任务正在原窗口运行，请点击提示条新建对话。");
+      return;
+    }
     setError(null);
     const userMsg = { role: "user", content: text };
     setMessages([...messages, userMsg]); // 乐观显示；发给模型的权威历史下面从持久化 store 读
@@ -869,7 +827,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
   async function newChat() {
     const t = await conversations.createThread(); // 新会话不绑定目录（默认为空，需用户手动「打开目录」）
     if (session && session.acquireThread) {
-      session.acquireThread([t.id], ownerRef.current); // 认领新线程（预留）→ 别的窗口认领不到，不会串对话
+      const got = session.acquireThread([t.id], ownerRef.current);
+      if (got !== t.id) {
+        setError("新会话已被另一个窗口认领，请重试。");
+        return;
+      }
     }
     setCurrentId(t.id);
     setMessages([]);
@@ -905,6 +867,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
 
   async function openThread(id) {
     // 切到历史会话：先认领；若已被**别的窗口**打开 → 不切、提示（避免两窗口绑同一条线程串对话）。切回当前条不用认领。
+    if (session && session.isRunning && session.isRunning(id) && (id !== currentId || !busy)) {
+      setError("该任务在原窗口运行，不能在此窗口接管。");
+      setShowHistory(false);
+      return;
+    }
     if (id !== currentId && session && session.acquireThread) {
       const got = session.acquireThread([id], ownerRef.current);
       if (!got) {
@@ -929,9 +896,6 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
     }
     setShowHistory(false);
   }
-
-  openThreadRef.current = openThread; // 每渲染更新，供「自动跟随」定时器调用最新闭包
-  uiStateRef.current = { msgs: messages.length, input }; // 每渲染更新，供自动跟随判定"面板是否真正空闲中性"
 
   async function deleteThread(id, ev) {
     ev.stopPropagation();
@@ -977,11 +941,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       {extRunning && (
         <button
           type="button"
-          onClick={() => { setExtRunning(null); openThread(extRunning.id); }}
-          title="外部(MCP)正在驱动另一个会话——点击切过去实时查看进度"
+          onClick={() => { setExtRunning(null); newChat(); }}
+          title="该任务在原窗口运行——点击在当前窗口新建对话"
           style={{ display: "block", width: "100%", textAlign: "left", border: "none", borderBottom: "1px solid rgba(106,140,255,0.3)", background: "rgba(106,140,255,0.15)", color: "#6a8cff", padding: "6px 12px", cursor: "pointer", fontSize: "12px" }}
         >
-          ⚡ 外部(MCP)正在驱动另一个会话（{extRunning.nSteps} 步）· 点击实时跟随
+          外部任务正在运行（{extRunning.nSteps} 步）· 该任务在原窗口运行，点击新建对话
         </button>
       )}
 
