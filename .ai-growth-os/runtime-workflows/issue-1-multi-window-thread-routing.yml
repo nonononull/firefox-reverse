@@ -13,7 +13,7 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-1-multi-window-thread-routing.md"
 approved_decision_ref: "session-plan:issue-1-multi-window-thread-routing#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:fe75a8e023bacb34de6b7300c05018b2311e0665"
+snapshot_ref: "git:336cf341e7c5be2d7e7977a1a223cadc8f25d327"
 task_scope_boundary: project-local-owner-scope
 task_current_state: final-review-delivery
 mutation_admission_status: project-local-owner-scope-required
@@ -26,5 +26,5 @@ verification_commands:
   - git diff --check
 rollout_draft:
   closeout_ref: issue-1-multi-window-thread-routing
-  validation_attribution: "2026-08-14 08:57:28 +08:00; implementation snapshot f19d8cbe123cdb0698a00fdaa47ac0836cf5bf0a tree f68a14b1831444f2e163fdaa216b54f48a76806e; governance snapshot fe75a8e023bacb34de6b7300c05018b2311e0665 tree e93e730027883b68aee078fbcd36c0c4530bc920; npm ci; sidebar bundle 220.9kb; 13/13 Node selftest files; reservation 67/67; ConversationStore 60/60; running release owner anchor, same-owner remount, post-run TTL recovery, metadata rollback, external running ownership gate, director legacy signatures, shared cold load, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer 78464614385e6599dbdbafe3945938c5d2341c54 REQUEST_CHANGES P1=2 P2=1 by d5261c5b-1250-4855-99e4-e29f1185d0c0 retained; ac55b198 historical finding restored; reviewer 51befd7e-f709-449c-b919-72614292f4be stopped on upstream PR identity failure before source review; project-local default entry blocked on absent central registration and did not mutate AGOS; fresh final exact-head rereview pending; no pull-request CI"
+  validation_attribution: "2026-08-14 09:50:04 +08:00; implementation snapshot ce6bf30c585dede0ce76c56ba8d1bab6f0b0fe29 tree 556e9e801ec2afab35e888073005f01e9370a4a8; governance snapshot 336cf341e7c5be2d7e7977a1a223cadc8f25d327 tree 0d7b9614d3aaeb046b9e34d6c21c32c38484a4fa; npm ci; sidebar bundle 221.5kb; 13/13 Node selftest files; reservation 70/70; ConversationStore 60/60; normal running release owner anchor, same-owner remount retry, transient claim abandon, historical read and non-current delete idle-to-running gates, post-run TTL recovery, metadata rollback, director legacy signatures, shared cold load, serialized mutations, guarded config intent and production delete routing contracts; branding 22 files; reviewer ee665652da982dc40c8dd8b71a692d48cb5aa8fd REQUEST_CHANGES P1=2 P2=1 by 7a7dc2f6-5372-444b-b9d2-0945acf807c5 retained; previous failed and no-verdict attempts remain in the session plan; project-local default entry remains blocked on absent central registration and did not mutate AGOS; fresh final exact-head rereview pending; no pull-request CI"
   follow_up_required: true
