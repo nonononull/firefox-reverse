@@ -1690,6 +1690,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
           maxPerTool: 40,
           workspaceRoot: runConfig.workspace,
           win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
+          threadReservation: {
+            owner: sendReservation.owner,
+            generation: sendReservation.generation,
+            claim: sendReservation.claim,
+          },
         },
         thread => {
           try {

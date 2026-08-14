@@ -27,8 +27,9 @@ function isValidConversationStep(step) {
   if (step.kind === "text" || step.kind === "think") {
     return typeof step.text === "string";
   }
-  return isOptionalString(step.id) && isOptionalString(step.name) &&
-    isOptionalString(step.status) && isOptionalString(step.summary) &&
+  return isOptionalString(step.id) && typeof step.name === "string" && !!step.name.trim() &&
+    (step.status === "running" || step.status === "ok" || step.status === "err") &&
+    isOptionalString(step.summary) &&
     (!Object.hasOwn(step, "images") ||
       (Array.isArray(step.images) && step.images.every(image => typeof image === "string"))) &&
     (!Object.hasOwn(step, "shot") || (Number.isInteger(step.shot) && step.shot >= 0));
@@ -61,7 +62,7 @@ function cloneConversationSnapshot(value) {
     }
     for (const message of thread.messages) {
       if (!message || typeof message !== "object" || Array.isArray(message) ||
-          typeof message.role !== "string" || !message.role.trim() ||
+          (message.role !== "user" && message.role !== "assistant") ||
           typeof message.content !== "string" ||
           (Object.hasOwn(message, "steps") && (!Array.isArray(message.steps) ||
             message.steps.some(step => !isValidConversationStep(step))))) {
@@ -71,6 +72,10 @@ function cloneConversationSnapshot(value) {
     ids.add(thread.id);
   }
   return snapshot;
+}
+
+function cloneConversationThread(thread) {
+  return thread ? JSON.parse(JSON.stringify(thread)) : null;
 }
 
 function sameConversationSnapshot(left, right) {
@@ -144,7 +149,7 @@ export class ConversationStore {
     if (record?.schemaVersion !== RECOVERY_SCHEMA_VERSION) {
       throw new Error("conversation recovery schema is unsupported");
     }
-    const phase = record.phase || "rollback";
+    const phase = record.phase === undefined ? "rollback" : record.phase;
     if (phase !== "rollback" && phase !== "committed") {
       throw new Error("conversation recovery phase is unsupported");
     }
@@ -332,7 +337,7 @@ export class ConversationStore {
   async getThread(id) {
     return this._read(d => {
       const thread = d.threads.find(t => t.id === id && !this._creatingIds.has(t.id));
-      return thread ? JSON.parse(JSON.stringify(thread)) : null;
+      return cloneConversationThread(thread);
     });
   }
 
@@ -362,7 +367,7 @@ export class ConversationStore {
       } finally {
         this._creatingIds.delete(t.id);
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 
@@ -388,7 +393,7 @@ export class ConversationStore {
           throw e;
         }
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 
@@ -414,7 +419,7 @@ export class ConversationStore {
           throw e;
         }
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 
@@ -439,7 +444,7 @@ export class ConversationStore {
           throw e;
         }
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 
@@ -464,7 +469,7 @@ export class ConversationStore {
           throw e;
         }
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 
@@ -573,7 +578,7 @@ export class ConversationStore {
       if (recoveryPrepared) {
         await this._clearRecoverySnapshot();
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 
@@ -597,7 +602,7 @@ export class ConversationStore {
           throw e;
         }
       }
-      return t;
+      return cloneConversationThread(t);
     });
   }
 

@@ -434,6 +434,93 @@ try {
   ok(readList[0]?.mode === null, "失败 mutation 后 listThreads 只看到回滚值");
 }
 
+// 所有返回 thread 的 mutation API 都必须返回 detached snapshot，调用者不能绕过队列与持久化。
+{
+  const store = new ConversationStore({ memoryOnly: true });
+  const created = await store.createThread(undefined, null, null, () => true);
+  created.title = "外部篡改";
+  created.messages.push({ role: "user", content: "绕过 append" });
+  let authoritative = await store.getThread(created.id);
+  ok(authoritative.title === "新对话" && authoritative.messages.length === 0, "createThread 返回 detached snapshot");
+
+  const modeResult = await store.setThreadMode(created.id, "assist", () => true);
+  modeResult.mode = "auto";
+  ok((await store.getThread(created.id)).mode === "assist", "setThreadMode 返回 detached snapshot");
+
+  const workspaceResult = await store.setThreadWorkspace(created.id, "D:\\owned", () => true);
+  workspaceResult.workspace = "D:\\tampered";
+  ok((await store.getThread(created.id)).workspace === "D:\\owned", "setThreadWorkspace 返回 detached snapshot");
+
+  const environmentResult = await store.setThreadEnvironment(created.id, "env-owned");
+  environmentResult.envId = "env-tampered";
+  ok((await store.getThread(created.id)).envId === "env-owned", "setThreadEnvironment 返回 detached snapshot");
+
+  const modelResult = await store.setThreadModelStrategy(created.id, "premium");
+  modelResult.modelStrategy = "balanced";
+  ok((await store.getThread(created.id)).modelStrategy === "premium", "setThreadModelStrategy 返回 detached snapshot");
+
+  const appendResult = await store.appendMessage(
+    created.id,
+    { role: "user", content: "已授权消息" },
+    () => true,
+  );
+  appendResult.messages.push({ role: "user", content: "外部夹带" });
+  authoritative = await store.getThread(created.id);
+  ok(authoritative.messages.length === 1 && authoritative.messages[0].content === "已授权消息", "appendMessage 返回 detached snapshot");
+
+  const renameResult = await store.renameThread(created.id, "权威标题");
+  renameResult.title = "外部标题";
+  ok((await store.getThread(created.id)).title === "权威标题", "renameThread 返回 detached snapshot");
+}
+
+// 只有 phase 字段真正缺失时才兼容旧 rollback sidecar；显式 falsy 值必须失败关闭。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const clone = value => JSON.parse(JSON.stringify(value));
+  try {
+    for (const [index, phase] of ["", null, false, 0].entries()) {
+      const files = new Map();
+      const path = `invalid-falsy-phase-${index}.json`;
+      const canonical = {
+        threads: [{
+          id: `canonical-${index}`,
+          title: "较新 canonical",
+          createdAt: 2,
+          updatedAt: 2,
+          messages: [],
+        }],
+      };
+      const stale = {
+        threads: [{
+          id: `stale-${index}`,
+          title: "较旧 sidecar",
+          createdAt: 1,
+          updatedAt: 1,
+          messages: [],
+        }],
+      };
+      files.set(path, clone(canonical));
+      files.set(path + ".recovery", { schemaVersion: 1, phase, snapshot: clone(stale) });
+      globalThis.IOUtils = {
+        async exists(candidate) { return files.has(candidate); },
+        async readJSON(candidate) { return clone(files.get(candidate)); },
+        async writeJSON(candidate, value) { files.set(candidate, clone(value)); },
+        async remove(candidate) { files.delete(candidate); },
+      };
+      const store = new ConversationStore({ memoryOnly: false, path });
+      await assert.rejects(store.listThreads(), /recovery phase is unsupported/);
+      ok(JSON.stringify(files.get(path)) === JSON.stringify(canonical), `非法 falsy phase ${index + 1} 不覆盖 canonical`);
+      ok(files.has(path + ".recovery"), `非法 falsy phase ${index + 1} 保留 sidecar`);
+    }
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
 // 首次 replay 失败后，第二次读取必须重试 canonical 恢复，不能因 _mem 已赋值而放行。
 {
   const originalIOUtils = globalThis.IOUtils;
@@ -537,6 +624,7 @@ try {
   const malformedMessages = [
     [null],
     [{ role: "", content: "x" }],
+    [{ role: "bogus", content: "x" }],
     [{ role: 7, content: "x" }],
     [{ role: "user", content: null }],
     [{ role: "assistant", content: "x", steps: {} }],
@@ -552,6 +640,8 @@ try {
     [{ role: "assistant", content: "x", steps: [{ kind: "tool", shot: 1.5 }] }],
     [{ role: "assistant", content: "x", steps: [{ kind: "text", text: {} }] }],
     [{ role: "assistant", content: "x", steps: [{ kind: "unknown", text: "x" }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool" }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool", name: "page_info", status: "bogus" }] }],
   ];
   const malformedThreadFields = [
     { workspace: {} },
@@ -637,16 +727,20 @@ try {
           mode: "auto",
           envId: "env-1",
           modelStrategy: "balanced",
-          messages: [{
-            role: "assistant",
-            content: "完成",
-            steps: [
-              { kind: "text", text: "正文" },
-              { kind: "think", text: "思考" },
-              { kind: "tool", id: "call-1", name: "page_info", status: "ok", summary: "ok", images: ["data:image/png;base64,AA=="] },
-              { kind: "tool", id: "call-2", name: "page_screenshot", status: "ok", summary: "count=2", shot: 2 },
-            ],
-          }],
+          messages: [
+            { role: "user", content: "开始" },
+            {
+              role: "assistant",
+              content: "完成",
+              steps: [
+                { kind: "text", text: "正文" },
+                { kind: "think", text: "思考" },
+                { kind: "tool", id: "call-1", name: "page_info", status: "running" },
+                { kind: "tool", id: "call-2", name: "page_info", status: "ok", summary: "ok", images: ["data:image/png;base64,AA=="] },
+                { kind: "tool", id: "call-3", name: "page_screenshot", status: "err", summary: "count=2", shot: 2 },
+              ],
+            },
+          ],
         }],
       };
       files.set(path, { threads: [] });
@@ -663,7 +757,7 @@ try {
       };
       const store = new ConversationStore({ memoryOnly: false, path });
       const recovered = await store.getThread("production-thread");
-      ok(recovered?.messages[0]?.steps.length === 4, "生产 text/think/tool/images/shot 结构可正向 replay");
+      ok(recovered?.messages[1]?.steps.length === 5, "生产 user/assistant 与 text/think/tool running/ok/err 结构可正向 replay");
       ok(!files.has(path + ".recovery"), "生产结构 replay 后清理 recovery sidecar");
     }
     {
@@ -892,7 +986,10 @@ try {
   rollbackFailureRejected = /append rollback save failed/.test(String(e?.message || e));
 }
 ok(rollbackFailureRejected, "appendMessage 回滚二次保存失败时显式进入恢复态");
-ok(rollbackFailureThread.messages.length === 0, "回滚二次保存失败后内存仍保持无消息状态");
+ok(
+  rollbackFailureStore._mem.threads.find(thread => thread.id === rollbackFailureThread.id)?.messages.length === 0,
+  "回滚二次保存失败后内存仍保持无消息状态",
+);
 let blockedByRecovery = false;
 try {
   await rollbackFailureStore.setThreadWorkspace(rollbackFailureThread.id, "D:\\blocked");
@@ -900,13 +997,19 @@ try {
   blockedByRecovery = /recovery save unavailable/.test(String(e?.message || e));
 }
 ok(blockedByRecovery, "恢复快照仍无法保存时阻断后续 mutation");
-ok(rollbackFailureThread.workspace === null, "恢复完成前不得修改 thread");
+ok(
+  rollbackFailureStore._mem.threads.find(thread => thread.id === rollbackFailureThread.id)?.workspace === null,
+  "恢复完成前不得修改 thread",
+);
 ok(
   rollbackSnapshots[2]?.threads[0]?.workspace === null,
   "恢复写必须发生在后续 mutation 修改内存之前",
 );
 await rollbackFailureStore.setThreadWorkspace(rollbackFailureThread.id, "D:\\recovered");
-ok(rollbackFailureThread.workspace === "D:\\recovered", "恢复快照保存成功后才允许后续 mutation");
+ok(
+  (await rollbackFailureStore.getThread(rollbackFailureThread.id)).workspace === "D:\\recovered",
+  "恢复快照保存成功后才允许后续 mutation",
+);
 ok(rollbackSnapshots[3]?.threads[0]?.messages.length === 0, "恢复保存先清除磁盘中的未运行消息");
 
 const modeLoad = guardedStore._load.bind(guardedStore);
@@ -971,8 +1074,9 @@ try {
   modeSaveRejected = /save failed/.test(String(e?.message || e));
 }
 ok(modeSaveRejected, "setThreadMode 透传保存失败");
-ok(saveFailureThread.mode === null, "setThreadMode 保存失败时回滚内存模式");
-ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadMode 保存失败时回滚更新时间");
+let authoritativeSaveFailure = await saveFailureStore.getThread(saveFailureThread.id);
+ok(authoritativeSaveFailure.mode === null, "setThreadMode 保存失败时回滚内存模式");
+ok(authoritativeSaveFailure.updatedAt === originalUpdatedAt, "setThreadMode 保存失败时回滚更新时间");
 
 let workspaceSaveRejected = false;
 try {
@@ -981,8 +1085,9 @@ try {
   workspaceSaveRejected = /save failed/.test(String(e?.message || e));
 }
 ok(workspaceSaveRejected, "setThreadWorkspace 透传保存失败");
-ok(saveFailureThread.workspace === null, "setThreadWorkspace 保存失败时回滚内存目录");
-ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadWorkspace 保存失败时回滚更新时间");
+authoritativeSaveFailure = await saveFailureStore.getThread(saveFailureThread.id);
+ok(authoritativeSaveFailure.workspace === null, "setThreadWorkspace 保存失败时回滚内存目录");
+ok(authoritativeSaveFailure.updatedAt === originalUpdatedAt, "setThreadWorkspace 保存失败时回滚更新时间");
 saveFailureStore._save = originalSave;
 
 // user append 必须先持久化成功再启动；保存失败时不得执行 onCommit，也不得污染后续快照。
@@ -1012,9 +1117,10 @@ try {
 }
 ok(appendSaveRejected, "appendMessage 透传启动前的保存失败");
 ok(appendStarted === 0, "appendMessage 保存失败时不得启动任务");
-ok(appendFailureThread.messages.length === 0, "appendMessage 保存失败时回滚本次内存消息");
-ok(appendFailureThread.title === "新对话", "appendMessage 保存失败时回滚自动标题");
-ok(appendFailureThread.updatedAt === appendOriginalUpdatedAt, "appendMessage 保存失败时回滚更新时间");
+const authoritativeAppendFailure = await appendFailureStore.getThread(appendFailureThread.id);
+ok(authoritativeAppendFailure.messages.length === 0, "appendMessage 保存失败时回滚本次内存消息");
+ok(authoritativeAppendFailure.title === "新对话", "appendMessage 保存失败时回滚自动标题");
+ok(authoritativeAppendFailure.updatedAt === appendOriginalUpdatedAt, "appendMessage 保存失败时回滚更新时间");
 await appendFailureStore.setThreadWorkspace(appendFailureThread.id, "D:\\after-failure");
 ok(
   appendSuccessfulSnapshots.at(-1)?.threads[0]?.messages.length === 0,
@@ -1095,8 +1201,9 @@ for (const testCase of metadataFailureCases) {
     rejected = new RegExp(`${testCase.label} save failed`).test(String(e?.message || e));
   }
   ok(rejected, `${testCase.label} 透传保存失败`);
-  ok(thread[testCase.property] === originalValue, `${testCase.label} 保存失败时回滚内存值`);
-  ok(thread.updatedAt === originalMutationUpdatedAt, `${testCase.label} 保存失败时回滚更新时间`);
+  const authoritative = await store.getThread(thread.id);
+  ok(authoritative[testCase.property] === originalValue, `${testCase.label} 保存失败时回滚内存值`);
+  ok(authoritative.updatedAt === originalMutationUpdatedAt, `${testCase.label} 保存失败时回滚更新时间`);
   await store.setThreadWorkspace(thread.id, `D:\\after-${testCase.property}-failure`);
   ok(
     snapshots.at(-1)?.threads[0]?.[testCase.property] === originalValue,
@@ -1179,13 +1286,19 @@ try {
   deleteRecoveryBlocked = /delete recovery unavailable/.test(String(e?.message || e));
 }
 ok(deleteRecoveryBlocked, "删除恢复快照仍无法保存时阻断后续 mutation");
-ok(deleteRollbackThread.title === "新对话", "删除恢复完成前不得修改 thread");
+ok(
+  deleteRollbackStore._mem.threads.find(thread => thread.id === deleteRollbackThread.id)?.title === "新对话",
+  "删除恢复完成前不得修改 thread",
+);
 ok(
   deleteRollbackSnapshots[3]?.threads[0]?.title === "新对话",
   "删除恢复写必须发生在后续 mutation 修改内存之前",
 );
 await deleteRollbackStore.renameThread(deleteRollbackThread.id, "恢复后允许修改");
-ok(deleteRollbackThread.title === "恢复后允许修改", "删除恢复成功后才允许后续 mutation");
+ok(
+  (await deleteRollbackStore.getThread(deleteRollbackThread.id)).title === "恢复后允许修改",
+  "删除恢复成功后才允许后续 mutation",
+);
 
 await s.deleteThread(t2.id, () => true);
 ok((await s.listThreads()).length === 1, "deleteThread 生效");

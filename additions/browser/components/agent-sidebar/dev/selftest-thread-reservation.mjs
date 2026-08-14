@@ -92,7 +92,7 @@ function makeStore() {
   const getOrInit = id => {
     let s = sessions.get(id);
     if (!s) {
-      s = { reservation: null, running: false, subs: new Set() };
+      s = { reservation: null, running: false, runEpoch: 0, subs: new Set() };
       sessions.set(id, s);
     }
     return s;
@@ -123,7 +123,24 @@ function makeStore() {
   });
   return {
     sessions,
-    setRunning: (id, running = true) => { getOrInit(id).running = running; },
+    setRunning: (id, running = true) => {
+      const state = getOrInit(id);
+      if (running && !state.running) {
+        state.runEpoch += 1;
+      }
+      state.running = running;
+    },
+    startOwnedRun: (id, owner, generation, claim) => {
+      const state = getOrInit(id);
+      if (!state.running) {
+        state.runEpoch += 1;
+      }
+      state.running = true;
+      if (state.reservation?.owner === owner && state.reservation?.generation === generation &&
+          state.reservation?.claim === claim) {
+        state.reservation.runEpoch = state.runEpoch;
+      }
+    },
     advance: ms => {
       for (const state of sessions.values()) {
         if (state.reservation) {
@@ -180,13 +197,25 @@ function check(name, got, want) {
     notify() {},
     buildClientFromStore() { throw new Error("provider setup failed"); },
     configStore: {},
+    RESERVE_TTL_MS,
   });
   const snapshot = sourceFunction("snapshot");
   const getState = sourceMethod("getState", { sessions: runtimeStates, snapshot });
   const runtime = { run, getState, async _persist() {} };
-  await runtime.run.call(runtime, "quick-failure", {});
+  const quickFailureState = getOrInit("quick-failure");
+  quickFailureState.reservation = {
+    owner: "winA",
+    generation: 1,
+    claim: 1,
+    ts: Date.now(),
+    runEpoch: null,
+  };
+  await runtime.run.call(runtime, "quick-failure", {
+    threadReservation: { owner: "winA", generation: 1, claim: 1 },
+  });
   check("快速失败 run 仍递增 epoch", runtime.getState("quick-failure").runEpoch, 1);
   check("快速失败 run 最终恢复 idle", runtime.getState("quick-failure").running, false);
+  check("owner 启动的 run 绑定 reservation epoch", quickFailureState.reservation.runEpoch, 1);
 }
 
 // 1) 基本认领
@@ -209,7 +238,7 @@ check("旧 release 后 reservation 仍有效", st.acquireThread(["T"], "winB", g
 check("新挂载仍可 renew", st.renewThread("T", "winA", genA, 1), true);
 
 // 3a) 运行中的 thread 只允许原 owner 重挂载；外部无预留任务与其它 owner 均不得接管
-st.setRunning("T", true);
+st.startOwnedRun("T", "winA", genA, 1);
 const runningGenA = st.beginThreadReservation("winA");
 check("原 owner 可重挂载运行 thread", st.acquireThread(["T"], "winA", runningGenA, 1), "T");
 const runningGenB = st.beginThreadReservation("winB");
@@ -224,7 +253,7 @@ st = makeStore();
 genA = st.beginThreadReservation("winA");
 genB = st.beginThreadReservation("winB");
 st.acquireThread(["T"], "winA", genA, 1);
-st.setRunning("T", true);
+st.startOwnedRun("T", "winA", genA, 1);
 check("运行中卸载接受精确 release", st.releaseThread("T", "winA", genA, 1), true);
 const remountGenA = st.beginThreadReservation("winA");
 check("运行中 release 后原 owner 可重挂载", st.acquireThread(["T"], "winA", remountGenA, 1), "T");
@@ -235,12 +264,28 @@ check("任务刚结束时其他 owner 仍受 TTL 保护", st.acquireThread(["T"]
 st.advance(RESERVE_TTL_MS + 1);
 check("任务结束且 TTL 过期后其他 owner 可回收", st.acquireThread(["T"], "winB", genB, 3), "T");
 
+// 3a-1a) 新鲜 owner 锚点只授权它绑定的 run；同 thread 后续 external run 不能复用。
+st = makeStore();
+genA = st.beginThreadReservation("winA");
+st.acquireThread(["T"], "winA", genA, 1);
+st.startOwnedRun("T", "winA", genA, 1);
+st.releaseThread("T", "winA", genA, 1);
+st.setRunning("T", false);
+st.setRunning("T", true);
+const laterExternalGenA = st.beginThreadReservation("winA");
+check(
+  "新鲜旧锚点不得授权后来启动的 external run",
+  st.acquireThread(["T"], "winA", laterExternalGenA, 1),
+  null,
+);
+check("旧心跳不得续约后来启动的 external run", st.renewThread("T", "winA", genA, 1), false);
+
 // 3a-1b) 已过期的同 owner 锚点不能授权后来才启动的 external run。
 st = makeStore();
 genA = st.beginThreadReservation("winA");
 genB = st.beginThreadReservation("winB");
 st.acquireThread(["T"], "winA", genA, 1);
-st.setRunning("T", true);
+st.startOwnedRun("T", "winA", genA, 1);
 st.releaseThread("T", "winA", genA, 1);
 st.setRunning("T", false);
 st.advance(RESERVE_TTL_MS + 1);
@@ -288,7 +333,7 @@ check(
 st = makeStore();
 const replacedGenA = st.beginThreadReservation("winA");
 st.acquireThread(["T"], "winA", replacedGenA, 1);
-st.setRunning("T", true);
+st.startOwnedRun("T", "winA", replacedGenA, 1);
 const currentGenA = st.beginThreadReservation("winA");
 check("新 generation 可接管原 owner 运行锚点", st.acquireThread(["T"], "winA", currentGenA, 1), "T");
 check(

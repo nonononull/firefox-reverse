@@ -117,7 +117,7 @@ function newState() {
     aborted: false,
     abort: null,
     subs: new Set(),
-    reservation: null, // 多窗口隔离：{ owner, generation, claim, ts } 或 null。
+    reservation: null, // 多窗口隔离：{ owner, generation, claim, ts, runEpoch } 或 null。
     //   只有「owner 不同 且 心跳新鲜(未过 TTL)」才算被别的活窗口占用；过期/同 owner/空 → 可认领。
     //   修「切到别的插件侧栏再切回→该会话已在另一个窗口打开」：旧 reserved 布尔无持有者无存活性，
     //   文档异常拆除时 releaseThread 没跑→reserved 永真泄漏→同窗口重挂载误判成"别的窗口占用"。
@@ -312,14 +312,24 @@ export const agentSession = {
       const s = getOrInit(id);
       const r = s.reservation;
       const reservationFresh = r && now - r.ts < RESERVE_TTL_MS;
-      // 运行中的 thread 只有仍在 TTL 内的原窗口 owner 可重挂载；过期锚点不能授权后来启动的外部任务。
-      if (s.running && (!reservationFresh || r.owner !== owner)) {
+      const ownsCurrentRun = reservationFresh && r.owner === owner && r.runEpoch === s.runEpoch;
+      // 运行中的 thread 只有仍在 TTL 内、且绑定当前 run epoch 的原窗口 owner 可重挂载。
+      if (s.running && !ownsCurrentRun) {
+        if (r?.owner === owner && (!reservationFresh || r.runEpoch !== s.runEpoch)) {
+          s.reservation = null;
+        }
         continue;
       }
       // 仅「别的 owner 且心跳仍新鲜」= 真有另一个活窗口占用；自己持有 / 无预留 / 预留过期(持有者已销毁) → 认领
       const liveOther = reservationFresh && r.owner !== owner;
       if (!liveOther) {
-        s.reservation = { owner, generation, claim, ts: now };
+        s.reservation = {
+          owner,
+          generation,
+          claim,
+          ts: now,
+          runEpoch: s.running ? r.runEpoch : null,
+        };
         return id;
       }
     }
@@ -339,6 +349,10 @@ export const agentSession = {
     const now = Date.now();
     if (!Number.isFinite(s.reservation.ts) || now - s.reservation.ts >= RESERVE_TTL_MS) {
       return false;                             // 过期心跳不能复活旧 owner 锚点
+    }
+    if (s.running && s.reservation.runEpoch !== s.runEpoch) {
+      s.reservation = null;
+      return false;                             // 旧锚点不能续约后来启动的 external run
     }
     s.reservation.ts = now;
     return true;
@@ -360,7 +374,7 @@ export const agentSession = {
         s.reservation.claim !== claim) {
       return false;                             // 不是自己的精确挂载代际，别动
     }
-    if (!s.running || abandonRunning === true) {
+    if (!s.running || abandonRunning === true || s.reservation.runEpoch !== s.runEpoch) {
       s.reservation = null;
     }
     return true;
@@ -415,7 +429,7 @@ export const agentSession = {
    *   assist — true=AI辅助逐阶段模式：不跨回合自动续（每个 turn 结束即交回用户），且 AgentLoop 里
    *            无工具的纯文字回复当正常收尾（停下给方向）而非 drift 逼它继续。false=全自动一条龙（默认）。
    */
-  async run(threadId, { systemPrompt, convo, confirmMode = false, maxRounds = 120, maxPerTool = 40, workspaceRoot, win, assist = false } = {}) {
+  async run(threadId, { systemPrompt, convo, confirmMode = false, maxRounds = 120, maxPerTool = 40, workspaceRoot, win, assist = false, threadReservation = null } = {}) {
     _runLog.push({ threadId, at: Date.now(), convoLen: Array.isArray(convo) ? convo.length : -1 });
     const s = getOrInit(threadId);
     if (s.running) {
@@ -423,6 +437,13 @@ export const agentSession = {
     }
     // 重置本轮态
     s.runEpoch = (s.runEpoch || 0) + 1;
+    if (threadReservation && s.reservation &&
+        s.reservation.owner === threadReservation.owner &&
+        s.reservation.generation === threadReservation.generation &&
+        s.reservation.claim === threadReservation.claim &&
+        Number.isFinite(s.reservation.ts) && Date.now() - s.reservation.ts < RESERVE_TTL_MS) {
+      s.reservation.runEpoch = s.runEpoch;
+    }
     s.running = true;
     s.settled = false;
     s.steps = [];

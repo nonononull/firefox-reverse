@@ -229,13 +229,18 @@ function makeClaimSession() {
       }
       for (const id of ids || []) {
         const held = reservations.get(id);
-        if (running.has(id) && held?.owner !== owner) {
+        if (running.has(id) && (held?.owner !== owner || held?.runEpoch !== (runEpochs.get(id) || 0))) {
           continue;
         }
         if (held?.owner !== owner && held) {
           continue;
         }
-        reservations.set(id, { owner, generation, claim });
+        reservations.set(id, {
+          owner,
+          generation,
+          claim,
+          runEpoch: running.has(id) ? held.runEpoch : null,
+        });
         return id;
       }
       return null;
@@ -243,7 +248,8 @@ function makeClaimSession() {
     renewThread(id, owner, generation, claim) {
       const held = reservations.get(id);
       return generations.get(owner) === generation && held?.owner === owner &&
-        held?.generation === generation && held?.claim === claim;
+        held?.generation === generation && held?.claim === claim &&
+        (!running.has(id) || held.runEpoch === (runEpochs.get(id) || 0));
     },
     releaseThread(id, owner, generation, claim, abandonRunning = false) {
       const held = reservations.get(id);
@@ -251,7 +257,7 @@ function makeClaimSession() {
           held?.generation !== generation || held?.claim !== claim) {
         return false;
       }
-      if (!running.has(id) || abandonRunning === true) {
+      if (!running.has(id) || abandonRunning === true || held.runEpoch !== (runEpochs.get(id) || 0)) {
         reservations.delete(id);
       }
       return true;
@@ -266,7 +272,14 @@ function makeClaimSession() {
       };
     },
     run(id, options) {
-      runEpochs.set(id, (runEpochs.get(id) || 0) + 1);
+      const runEpoch = (runEpochs.get(id) || 0) + 1;
+      runEpochs.set(id, runEpoch);
+      const held = reservations.get(id);
+      const requested = options?.threadReservation;
+      if (held && requested && held.owner === requested.owner &&
+          held.generation === requested.generation && held.claim === requested.claim) {
+        held.runEpoch = runEpoch;
+      }
       running.add(id);
       runCalls.push({ id, options });
     },
@@ -322,7 +335,13 @@ function makeClaimSession() {
   const oldMount = createReservationOwner(resumeSession, host);
   const oldClaim = createClaim(oldMount);
   assert.equal(acquireOwnedThread(resumeSession, ["same-window-running"], oldClaim), "same-window-running");
-  resumeSession.run("same-window-running", {});
+  resumeSession.run("same-window-running", {
+    threadReservation: {
+      owner: oldClaim.owner,
+      generation: oldClaim.generation,
+      claim: oldClaim.claim,
+    },
+  });
   const newMount = createReservationOwner(resumeSession, host);
   const resumed = await acquireIdleExistingThread(
     { async getThread() { return { id: "same-window-running" }; } },
@@ -333,17 +352,41 @@ function makeClaimSession() {
   );
   assert.equal(resumed?.thread?.id, "same-window-running", "原窗口重挂载必须续看自己运行中的 thread");
   assert.equal(resumed?.resumedRunning, true);
+  releaseOwnedThread(resumeSession, "same-window-running", resumed.reservation, false);
+  resumeSession.finishRun("same-window-running");
+  resumeSession.run("same-window-running", {});
+  const laterExternalMount = createReservationOwner(resumeSession, host);
+  const laterExternal = await acquireIdleExistingThread(
+    { async getThread() { return { id: "same-window-running" }; } },
+    resumeSession,
+    "same-window-running",
+    laterExternalMount,
+    () => true,
+  );
+  assert.equal(laterExternal, null, "同 owner 新挂载不得借旧锚点续看后续 external run");
 
   const parallelSession = makeClaimSession();
   const originalHost = {};
   const originalMount = createReservationOwner(parallelSession, originalHost);
   const originalClaim = createClaim(originalMount);
   assert.equal(acquireOwnedThread(parallelSession, ["owned-running"], originalClaim), "owned-running");
-  parallelSession.run("owned-running", {});
+  parallelSession.run("owned-running", {
+    threadReservation: {
+      owner: originalClaim.owner,
+      generation: originalClaim.generation,
+      claim: originalClaim.claim,
+    },
+  });
   const otherMount = createReservationOwner(parallelSession, {});
   const otherClaim = createClaim(otherMount);
   assert.equal(acquireOwnedThread(parallelSession, ["newer-other"], otherClaim), "newer-other");
-  parallelSession.run("newer-other", {});
+  parallelSession.run("newer-other", {
+    threadReservation: {
+      owner: otherClaim.owner,
+      generation: otherClaim.generation,
+      claim: otherClaim.claim,
+    },
+  });
   const remount = createReservationOwner(parallelSession, originalHost);
   const preferred = await acquirePreferredExistingThread(
     { async getThread(id) { return { id }; } },
@@ -367,7 +410,13 @@ function makeClaimSession() {
     acquireOwnedThread(staleRemountSession, ["stale-running-remount"], staleOriginalClaim),
     "stale-running-remount",
   );
-  staleRemountSession.run("stale-running-remount", {});
+  staleRemountSession.run("stale-running-remount", {
+    threadReservation: {
+      owner: staleOriginalClaim.owner,
+      generation: staleOriginalClaim.generation,
+      claim: staleOriginalClaim.claim,
+    },
+  });
   const cancelledRemountOwner = createReservationOwner(staleRemountSession, staleRemountHost);
   const cancelledRemount = await acquireIdleExistingThread(
     { async getThread() { return { id: "stale-running-remount" }; } },
