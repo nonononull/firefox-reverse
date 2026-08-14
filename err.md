@@ -101,14 +101,14 @@
 - 红测：组合动态用例先以 claim 2 删除 B，再尝试以既有 claim 1 删除 A；旧实现稳定抛出“该会话已在另一个浏览器窗口打开”，证明问题不在 reservation 续约而在重复认领。
 - 修复：实现 checkpoint `4074d00ceb4606e3d22ae1294ba53cb8302cdf68`、tree `47b165892ee4db71c3e61801efd32fd6359c1d09` 为内部删除 helper 增加 `alreadyOwned` 路径。当前删除以 `renewThread()` 验证精确 reservation，非当前删除继续以最新 claim 调用 `acquireThread()`；成功后均释放目标，当前删除失败仍保留既有 reservation。
 - 验证：该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.6kb`、13/13 Node 自测文件、reservation 52/52、ConversationStore 32/32、multi-window routing 动态合同、branding 22 文件和 `git diff --check` 全部通过。
-- 边界：仅修改 `AgentPanel.jsx` 与 `selftest-multi-window-routing.mjs`；未修改 reservation 公共 API、`AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁，未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。
+- 边界：该批仅修改 `AgentPanel.jsx` 与 `selftest-multi-window-routing.mjs`；当时没有继续修改 reservation 协议。完整 PR 已将 reservation 从旧两参数签名升级为 `owner + generation + claim` 并新增 `beginThreadReservation()`，旧调用失败关闭。未修改 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁。
 
 ## 2026-08-14：失败的高 claim 也必须推进 owner 水位
 
 - 取证时间：`2026-08-14 05:50:15 +08:00`。
 - 现象：fresh reviewer `3f372874-23a5-4d38-966f-3d157f7c25a5` 对 `e84e4b18ac250614979876b68e810a6fc2845d16`、tree `5affad19645ed32eafbaee52ad271785a22e5a32` 返回 `REQUEST_CHANGES`（P1=1、P2=2）。高 claim 只有认领成功才推进 owner+generation 水位，因此“claim 1 持有 A -> claim 2 认领被其它 owner 占用的 B 失败 -> 迟到 claim 1 认领空 C”仍会成功；reviewer 同时要求生产删除路由具备动态语义证据，并指出最终审查台账遗漏两次 shutdown/no-verdict 尝试。
 - 红测：`selftest-thread-reservation.mjs` 新增“高 claim 认领被占目标失败后，旧 claim 不得认领空目标、但仍可续约自己原有 reservation”的确定性交错；`selftest-multi-window-routing.mjs` 直接提取并执行生产 `deleteThreadForSelection()`，覆盖当前与非当前删除的成功、失败、释放和保留语义，React 入口只保留对该 helper 的单一调用。
-- 修复：实现提交 `4f52a4fdf45481da908e2c467a80ec16c68d32f2`、tree `d12dd5bc6829ac7172bb6644c5558caba8e7c7cb` 在 `acquireThread()` 校验 generation/claim 后、扫描候选前推进 owner 水位；认领失败不再允许低 claim 跨目标复活。生产删除逻辑收敛到 `deleteThreadForSelection()`，没有修改公共 reservation API、`AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁。
+- 修复：实现提交 `4f52a4fdf45481da908e2c467a80ec16c68d32f2`、tree `d12dd5bc6829ac7172bb6644c5558caba8e7c7cb` 在 `acquireThread()` 校验 generation/claim 后、扫描候选前推进 owner 水位；认领失败不再允许低 claim 跨目标复活。生产删除逻辑收敛到 `deleteThreadForSelection()`；没有修改 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁。
 - 验证：该 SHA 上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `218.6kb`、13/13 Node 自测文件、thread reservation 57/57、ConversationStore 32/32、multi-window routing 生产删除 helper 动态合同、branding 22 文件和 `git diff --check` 全部通过。
 - 审查台账：`f92d93752aecbec3edf33bce5486fe8d95935371` 的 reviewer 因 provider 503 结束，无 findings/verdict；reviewer `019ffcda-2437-7791-a95a-54cab6ca68a8` 与 `019ffcee-5f0d-7892-977e-eced1beb2c71` 均因长期无输出被 shutdown，无 findings/verdict。三次无 verdict 均不是批准，也不得覆盖任何 `REQUEST_CHANGES`。
 - 边界：没有启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 pull-request workflow，上述证据是实现快照本地门禁，不是 CI。治理提交后仍需 fresh exact-head reviewer 返回 `APPROVE P0=0 P1=0 P2=0` 才可合并。
@@ -120,4 +120,13 @@
 - 红测：ConversationStore 自测复现 director 三参数 create 与无 guard mode/workspace/message 调用、共享冷启动读取和并发保存失败隔离；multi-window routing 动态执行权威配置读取、digest 等待竞态、默认 mode 与用户 mode 的配置 intent 竞争、线性化点 mode/workspace guard、缺失 thread 和漏传 guard mutation。
 - 修复：实现提交 `c7672eb319c81fb06f605e9a4ec1ef642be59e7a` 增加共享 `_loadPromise` 与串行 mutation queue，在显式 guard 存在时保持 UI 失败关闭、未提供时兼容 director 旧签名；发送改为 digest 后读取权威 thread 配置，并在最终消息提交点复核配置 intent 与 mode/workspace。最终测试加固提交 `69a514e76550adc8d563f739c0c9f132bb3aeb88`、tree `9c0396e2d7d6fa100b7fea8b6ad58b4f1920d541` 让 React mode/workspace 统一走显式 guard helper，并证明旧默认 `auto` 不能覆盖后来发布的用户模式。
 - 验证：在 `69a514e76550adc8d563f739c0c9f132bb3aeb88` 内容上无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `220.4kb`、13/13 Node 自测文件、thread reservation 57/57、ConversationStore 42/42、multi-window routing 合同、branding 22 文件和 `git diff --check` 全部通过。
-- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或公共 reservation API；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。该本地证据不是 final approval，治理提交后仍需 fresh exact-head reviewer。
+- 边界：该批未继续修改 reservation 协议，也未修改 `AgentSession.run()`、`callTool()`、sessions map 或 raw-tool 锁；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。该本地证据不是 final approval，治理提交后仍需 fresh exact-head reviewer。
+
+## 2026-08-14：初始化仍可接管外部运行 thread，user 保存失败仍会夹带
+
+- 取证时间：`2026-08-14 08:19:44 +08:00`。
+- 现象：fresh reviewer `8d29ce1a-c8c3-47de-ae8f-b3c9eb30dca5` 对 `98e080540b823327f3e52ceed2b821784d3fc7b6`、tree `6f8eab856a10030cc66eb2ec442c5225fb5e214c` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。初始化会认领最新且无 reservation 的外部运行 thread；user append 在同步启动任务后若 `_save()` 失败，会把失败消息留在 `_mem` 并由后续成功保存夹带。旧文档还错误声称公共 reservation API 未修改。
+- 红测：路由自测直接执行生产初始化候选 helper，覆盖“外部 thread 调用前已运行”“认领后才进入运行态”“同 owner 重挂载续看自己运行任务”三种交错；ConversationStore 自测模拟 user append 启动后保存失败，再执行成功 workspace 保存并检查持久化快照。
+- 修复：`f5f632978f4764a62c1bc1ae2ba6ff591a165783` 为初始化增加运行态候选门禁并让 `appendMessage()` 条件回滚本次消息、自动标题和更新时间；`228c00b4aec7702748711de91d3927cc46656aa4`、tree `864c11a6e5faac2afc4621de21f4ab16cc9c7973` 将运行态门禁收敛到 reservation 认领线性化点：只有已有同 owner reservation 的运行 thread 可由原窗口重挂载，外部无 reservation 或其它 owner 均失败关闭。
+- 验证：在 `228c00b4aec7702748711de91d3927cc46656aa4` 上无重试执行 `npm ci` 和完整 PowerShell 门禁，sidebar bundle `220.9kb`、13/13 Node 自测文件、thread reservation `60/60`、ConversationStore `48/48`、multi-window routing、branding 22 文件和 `git diff --check` 全部通过。
+- 兼容性：`ConversationStore` 的 director 三参数 create 及无 guard mode/workspace/message 旧签名继续兼容；UI reservation API 已升级为 `beginThreadReservation()` 加 `owner + generation + claim`，旧两参数调用故意失败关闭。`AgentSession.run()`、`callTool()`、sessions map 与 raw-tool 锁未修改。
