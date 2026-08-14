@@ -73,6 +73,10 @@ function cloneConversationSnapshot(value) {
   return snapshot;
 }
 
+function sameConversationSnapshot(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function requireAuthorization(guard, operation, id, value) {
   if (typeof guard !== "function") {
     throw new Error(`conversation ${operation} requires an ownership guard: ${id}`);
@@ -140,24 +144,35 @@ export class ConversationStore {
     if (record?.schemaVersion !== RECOVERY_SCHEMA_VERSION) {
       throw new Error("conversation recovery schema is unsupported");
     }
-    if (record.phase !== undefined && record.phase !== "rollback" && record.phase !== "committed") {
+    const phase = record.phase || "rollback";
+    if (phase !== "rollback" && phase !== "committed") {
       throw new Error("conversation recovery phase is unsupported");
     }
-    return cloneConversationSnapshot(record.snapshot);
+    return {
+      phase,
+      snapshot: cloneConversationSnapshot(record.snapshot),
+      rollbackSnapshot: phase === "committed" && record.rollbackSnapshot !== undefined
+        ? cloneConversationSnapshot(record.rollbackSnapshot)
+        : null,
+    };
   }
 
-  async _writeRecoverySnapshot(snapshot = this._mem, phase = "rollback") {
+  async _writeRecoverySnapshot(snapshot = this._mem, phase = "rollback", rollbackSnapshot = null) {
     if (this._memoryOnly) {
       return;
     }
     const path = await this._recoveryPath();
+    const record = {
+      schemaVersion: RECOVERY_SCHEMA_VERSION,
+      phase,
+      snapshot: cloneConversationSnapshot(snapshot),
+    };
+    if (phase === "committed" && rollbackSnapshot) {
+      record.rollbackSnapshot = cloneConversationSnapshot(rollbackSnapshot);
+    }
     await IOUtils.writeJSON(
       path,
-      {
-        schemaVersion: RECOVERY_SCHEMA_VERSION,
-        phase,
-        snapshot: cloneConversationSnapshot(snapshot),
-      },
+      record,
       { tmpPath: path + ".tmp" },
     );
   }
@@ -230,8 +245,21 @@ export class ConversationStore {
       if (this._memoryOnly) {
         return (this._mem = { threads: [] });
       }
-      const recoverySnapshot = await this._readRecoverySnapshot();
-      if (recoverySnapshot) {
+      const recovery = await this._readRecoverySnapshot();
+      if (recovery) {
+        let recoverySnapshot = recovery.snapshot;
+        if (recovery.phase === "committed" && recovery.rollbackSnapshot) {
+          try {
+            const canonical = cloneConversationSnapshot(
+              await IOUtils.readJSON(await this._filePath()),
+            );
+            if (sameConversationSnapshot(canonical, recovery.rollbackSnapshot)) {
+              recoverySnapshot = canonical;
+            }
+          } catch {
+            // canonical 缺失或损坏时，仍以已验证的 committed journal 为准。
+          }
+        }
         this._mem = recoverySnapshot;
         this._recoverySavePending = true;
         await this._save();
@@ -302,7 +330,10 @@ export class ConversationStore {
   }
 
   async getThread(id) {
-    return this._read(d => d.threads.find(t => t.id === id && !this._creatingIds.has(t.id)) || null);
+    return this._read(d => {
+      const thread = d.threads.find(t => t.id === id && !this._creatingIds.has(t.id));
+      return thread ? JSON.parse(JSON.stringify(thread)) : null;
+    });
   }
 
   async createThread(title = NEW_TITLE, workspace = null, mode = null, canCreate) {
@@ -504,7 +535,7 @@ export class ConversationStore {
           requireAuthorization(canAppend, "append", id, t);
         }
         if (recoveryPrepared) {
-          await this._writeRecoverySnapshot(d, "committed");
+          await this._writeRecoverySnapshot(d, "committed", rollbackSnapshot);
           recoveryCommitted = true;
           requireAuthorization(canAppend, "append", id, t);
         }
@@ -597,7 +628,7 @@ export class ConversationStore {
           // 保存期间 director 仍可能启动任务；完成写入后再同步复核一次，作为删除线性化点。
           requireAuthorization(canDelete, "deletion", id, removed);
           if (recoveryPrepared) {
-            await this._writeRecoverySnapshot(d, "committed");
+            await this._writeRecoverySnapshot(d, "committed", rollbackSnapshot);
             recoveryCommitted = true;
             requireAuthorization(canDelete, "deletion", id, removed);
             await this._clearRecoverySnapshot();
