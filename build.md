@@ -126,8 +126,8 @@ GitHub 仓库当前只有 `release.yml`，没有 pull request workflow。本任�
 
 ## 当前实现快照
 
-- 取证时间：`2026-08-14 12:46:54 +08:00`。
-- 实现提交：`2b87e2c2780c82d9faf2391c6be4c94bed8de8a3`，tree `f9146efb6a4bf2e1bab7a39bcf87c3761d2f3174`。
-- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `77/77`，ConversationStore 为 `95/95`，multi-window routing 合同为 `PASS`，branding 为 22 文件，最终标记为 `FULL_GATE_OK`。
-- 组合动态测试证明初始化会跳过其它 owner 的较新任务并优先重挂载本 owner 的 running thread；历史点击只允许同 owner 精确重挂载；删除保存期间持续或快速结束的 external run 均由单调 epoch 触发持久化回滚；append/deletion 在 provisional canonical 前先落 durable recovery sidecar；首次 replay 会阻断并发读取和 mutation、失败后可重试且不会被迟到旧快照覆盖；深层畸形 sidecar 保留并失败关闭。
+- 取证时间：`2026-08-14 13:25:44 +08:00`。
+- 实现提交：`d31d6d29ec112e8fe5d85737bb07cc679db1c0f3`，tree `d1bfb146f53d9b596430dd9b1051898a0acd06f2`。
+- 无重试执行 `npm ci`、侧栏构建、13/13 Node 自测文件、branding 和 `git diff --check`，全部通过；bundle 为 `222.4kb`，thread reservation 为 `78/78`，ConversationStore 为 `112/112`，multi-window routing 合同为 `PASS`，branding 为 22 文件，最终标记为 `FULL_GATE_OK`。
+- 组合动态测试证明运行中的同 owner 锚点必须仍在 TTL 内，过期锚点不能接管后来启动的 external run；guarded append 在 `session.run()` 前持久化 `committed` journal，sidecar 清理失败后 fresh Store 仍保留已提交用户消息；recovery snapshot 拒绝畸形 `role/content/steps`；删除在 sidecar 清理后再次复核 ownership；迟到创建清理复用 runEpoch 删除闸门并保留已启动 thread。
 - 该证据只绑定实现快照；治理提交后的 fresh exact-head 独立审查仍是合并硬门，仓库无 pull-request CI。

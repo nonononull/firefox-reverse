@@ -198,3 +198,12 @@
 - 修复：实现提交 `2b87e2c2780c82d9faf2391c6be4c94bed8de8a3`、tree `f9146efb6a4bf2e1bab7a39bcf87c3761d2f3174` 在 guarded append/deletion 变更前先落 recovery sidecar；`_loadPromise` 优先于 `_mem` 并串行化首次 replay、读取与 mutation；replay 失败保持可重试；snapshot 校验扩展到 thread ID、标题、时间、消息数组和重复 ID。owner-scope 只授权 accepted-run epoch 观测，不授权其它执行、重入、持久化或 raw-tool 锁改动。
 - 验证纠错：第一次完整链误抄了不存在的 `selftest-tools.mjs`，命令在该点中断，因此整条链无效且不计入通过证据。随后严格按 `build.md` 的固定 13 项列表重新无重试执行，`npm ci`、bundle `222.4kb`、13/13、reservation `77/77`、ConversationStore `95/95`、multi-window routing `PASS`、branding 22 文件与 `git diff --check` 全部通过，最终标记 `FULL_GATE_OK`。
 - 边界：未启动或修改 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端；仓库无 PR workflow，本地门禁不是 CI。治理 snapshot 与 fresh exact-head reviewer 仍是合并硬门。
+
+## 2026-08-14：过期 owner 锚点与 committed recovery 阶段仍缺失
+
+- 取证时间：`2026-08-14 13:25:44 +08:00`。
+- 现象：fresh reviewer `a9f2fd73-b20d-45ee-81fb-3fca1d45704c` 对治理 HEAD `c4bcf9ef1275b558db593a95530846eb3de53dce`、tree `053625e76e29d4520e58ae17d9cfdb3060ed3563` 返回 `REQUEST_CHANGES`（P1=2、P2=1）。同 owner 的运行锚点未校验 TTL，可接管后来启动的 external run；user append 启动任务后仍保留 rollback sidecar，清理失败重启会抹掉已启动任务的用户消息；recovery 深层校验未验证 message 的 `role/content/steps`。
+- 红测：reservation 新增“任务结束、TTL 过期、随后 external run 启动”的同 owner 重挂载反例；ConversationStore 新增 committed journal 写入顺序、sidecar 清理失败 fresh replay、六类畸形 message 和删除清理期间失权故障注入；routing 新增迟到创建在删除时启动 external run 的组合用例。旧实现分别稳定失败。
+- 修复：实现提交 `d31d6d29ec112e8fe5d85737bb07cc679db1c0f3`、tree `d1bfb146f53d9b596430dd9b1051898a0acd06f2` 要求 running remount 的同 owner 锚点仍在 TTL 内；recovery record 增加兼容旧 sidecar 的 `rollback/committed` phase，并在 `onCommit/session.run` 前持久化 committed snapshot；删除在 committed 写入、sidecar 清理后都重新验权；迟到创建清理复用 runEpoch 删除闸门；message 校验下钻到非空 role、字符串 content 和对象 steps。
+- 验证：无重试执行 `npm ci` 与完整 PowerShell 门禁，sidebar bundle `222.4kb`、13/13 Node 自测文件、thread reservation `78/78`、ConversationStore `112/112`、multi-window routing `PASS`、branding 22 文件、lockfile SHA-256 不变及 `git diff --check` 全部通过，最终标记 `FULL_GATE_OK`。
+- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁、director 兼容签名或 owner-scope；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库仍为 `no-PR-CI`，治理提交后的 fresh exact-head reviewer 仍是合并硬门。
