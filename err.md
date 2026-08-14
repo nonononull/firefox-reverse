@@ -155,3 +155,12 @@
 - 修复：实现提交 `ce6bf30c585dede0ce76c56ba8d1bab6f0b0fe29`、tree `556e9e801ec2afab35e888073005f01e9370a4a8` 为内部 reservation release 增加默认关闭的 `abandonRunning` 参数。正常 pagehide/unmount 仍保留运行中 owner 锚点；尚未绑定的初始化、历史读取、创建和非当前删除临时 claim 可精确清除锚点。历史点击在认领前、读取内及绑定前复核运行态；同 owner 已有 running remount 的取消路径继续使用正常 release。
 - 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `221.5kb`、13/13 Node 自测文件、thread reservation `70/70`、ConversationStore `60/60`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
 - 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库无 PR workflow，本地门禁不是 CI，治理提交后仍需 fresh final exact-head reviewer 返回 0/0/0。
+
+## 2026-08-14：旧 generation 无法收回临时 claim，消息保存失败后任务仍启动
+
+- 取证时间：`2026-08-14 10:27:35 +08:00`。
+- 现象：fresh reviewer `d5fe1b3b-56d1-4e8c-b338-6d790631e32b` 对 `4e0e246c9f7728b1ed366602b55d3c90daff2a02`、tree `b270a11e77982c8c52efc3236b714457d5d8c163` 返回 `REQUEST_CHANGES`（P1=2、P2=0）。同宿主发布新 generation 后，旧历史读取的 finally 无法 abandon 自己仍精确持有的临时 claim；`appendMessage()` 又在 `_save()` 前调用启动回调，保存失败时任务已运行但用户消息未持久化。
+- 红测：reservation 动态用例覆盖“新 generation 仅发布未接管时旧 claim 必须清理”和“新 generation 已接管时旧 claim 不得误清”；routing 用例在历史读取返回前发布新 generation；ConversationStore 用例证明保存失败零启动，以及保存等待期间失权后必须写入无消息的回滚快照。
+- 修复：实现提交 `c718298bfa315a188ab6b5e010110a387a234688`、tree `aae7962d791897adb0cac6925f5986c23edb9ab9` 仅对显式 `abandonRunning=true` 放宽当前 generation 前置，并继续要求 reservation 精确匹配 `owner + generation + claim`。user append 先保存，再在最终同步 ownership guard 后无 `await` 调用 `session.run()`；最终 guard 或启动失败时回滚并重新持久化。
+- 验证：无重试完整 PowerShell 门禁通过 `npm ci`、sidebar bundle `221.6kb`、13/13 Node 自测文件、thread reservation `75/75`、ConversationStore `65/65`、multi-window routing `PASS`、branding 22 文件与 `git diff --check`；`package-lock.json` 未变化，bundle 未被 Git 跟踪。
+- 边界：未修改 `AgentSession.run()`、`callTool()`、sessions map、raw-tool 锁或 director 兼容签名；未启动 Firefox、Reverse Lab、Pingbo、Bet365、账号、live 或第三方后端。仓库无 PR workflow，本地门禁不是 CI，治理提交后仍需 fresh final exact-head reviewer 返回 0/0/0。
