@@ -138,6 +138,17 @@ const createOwnedThread = sourceFunction(
     renewOwnedThread,
   },
 );
+const acquireIdleExistingThread = sourceFunction(
+  "acquireIdleExistingThread",
+  "async function",
+  {
+    hasThreadReservation,
+    createReservationClaim: createClaim,
+    acquireOwnedThread,
+    renewOwnedThread,
+    releaseOwnedThread,
+  },
+);
 const commitOwnedUserMessage = sourceFunction("commitOwnedUserMessage", "async function");
 const beginThreadConfigIntent = sourceFunction("beginThreadConfigIntent", "function");
 const captureThreadConfigIntent = sourceFunction("captureThreadConfigIntent", "function");
@@ -264,6 +275,43 @@ function makeClaimSession() {
     /预留 API 不完整/,
   );
   assert.equal(createCount, 0, "预留 API 不完整时不得先创建无主 thread");
+}
+
+{
+  const session = makeClaimSession();
+  const owner = createReservationOwner(session, {});
+  session.run("external-running", {});
+  let readCount = 0;
+  const alreadyRunning = await acquireIdleExistingThread(
+    { async getThread() { readCount += 1; return { id: "external-running" }; } },
+    session,
+    "external-running",
+    owner,
+    () => true,
+  );
+  assert.equal(alreadyRunning, null, "初始化不得认领已经运行的外部 thread");
+  assert.equal(readCount, 0, "已运行候选不得进入历史读取");
+  assert.equal(session.reservations.has("external-running"), false);
+
+  const racedSession = makeClaimSession();
+  const racedOwner = createReservationOwner(racedSession, {});
+  const originalAcquire = racedSession.acquireThread.bind(racedSession);
+  racedSession.acquireThread = (...args) => {
+    const acquired = originalAcquire(...args);
+    if (acquired) {
+      racedSession.run(acquired, {});
+    }
+    return acquired;
+  };
+  const raced = await acquireIdleExistingThread(
+    { async getThread() { return { id: "starts-during-acquire" }; } },
+    racedSession,
+    "starts-during-acquire",
+    racedOwner,
+    () => true,
+  );
+  assert.equal(raced, null, "认领后进入运行态的外部 thread 仍不得被初始化绑定");
+  assert.equal(racedSession.reservations.has("starts-during-acquire"), false, "运行态竞态必须释放临时预留");
 }
 
 {
@@ -1112,8 +1160,8 @@ assert.match(reservationLifecycle, /setCurrentId\(current\s*=>\s*current\s*===\s
 assert.match(reservationLifecycle, /setError\("当前会话的窗口预留已失效/);
 
 const initialization = section("// 初始化：载入线程列表", "// 续看：mount/切线程");
-assert.match(initialization, /acquired\s*===\s*latest\s*\?\s*latest\s*:\s*null/);
-assert.match(initialization, /await readAcquiredThread\s*\(/);
+assert.match(initialization, /await acquireIdleExistingThread\s*\(/);
+assert.match(initialization, /session\.isRunning\(t\.id\)/);
 assert.match(initialization, /keepOwnedThreadForSelection\s*\(/);
 assert.match(initialization, /sameSelectionIntent\(selectionRef, selectionIntentRef, initialSelection\)/);
 const openThread = section("async function openThread", "async function deleteThread");

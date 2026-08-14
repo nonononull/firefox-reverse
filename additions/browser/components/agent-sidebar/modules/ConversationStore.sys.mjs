@@ -256,8 +256,10 @@ export class ConversationStore {
         title: t.title,
         updatedAt: t.updatedAt,
       };
-      t.messages.push({ role: msg.role, content: msg.content, ...(msg.steps ? { steps: msg.steps } : {}) });
-      t.updatedAt = nextTs();
+      const appended = { role: msg.role, content: msg.content, ...(msg.steps ? { steps: msg.steps } : {}) };
+      t.messages.push(appended);
+      const mutationUpdatedAt = nextTs();
+      t.updatedAt = mutationUpdatedAt;
       if (t.title === NEW_TITLE && msg.role === "user" && msg.content) {
         t.title = msg.content.replace(/\s+/g, " ").trim().slice(0, 30) || NEW_TITLE;
       }
@@ -271,7 +273,17 @@ export class ConversationStore {
         t.updatedAt = previous.updatedAt;
         throw e;
       }
-      await this._save();
+      try {
+        await this._save();
+      } catch (e) {
+        if (t.messages.length === previous.messageCount + 1 &&
+            t.messages.at(-1) === appended && t.updatedAt === mutationUpdatedAt) {
+          t.messages.length = previous.messageCount;
+          t.title = previous.title;
+          t.updatedAt = previous.updatedAt;
+        }
+        throw e;
+      }
       return t;
     });
   }

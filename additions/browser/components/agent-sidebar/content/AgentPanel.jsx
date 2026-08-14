@@ -470,6 +470,50 @@ function keepOwnedThreadForSelection(
   return false;
 }
 
+async function acquireIdleExistingThread(
+  conversations,
+  session,
+  threadId,
+  reservation,
+  canKeep = () => true,
+) {
+  if (!threadId) {
+    return null;
+  }
+  if (!hasThreadReservation(session) || typeof session.isRunning !== "function" ||
+      !conversations || typeof conversations.getThread !== "function") {
+    throw new Error("多窗口会话预留或运行状态接口不完整，已拒绝加载历史会话。");
+  }
+  if (session.isRunning(threadId)) {
+    return null;
+  }
+  const claim = createReservationClaim(reservation);
+  const acquired = claim ? acquireOwnedThread(session, [threadId], claim) : null;
+  if (acquired !== threadId) {
+    if (acquired) {
+      releaseOwnedThread(session, acquired, claim);
+    }
+    return null;
+  }
+  let keep = false;
+  try {
+    if (session.isRunning(threadId)) {
+      return null;
+    }
+    const thread = await conversations.getThread(threadId);
+    if (!thread || canKeep() !== true || session.isRunning(threadId) ||
+        !renewOwnedThread(session, threadId, claim, () => {})) {
+      return null;
+    }
+    keep = true;
+    return { thread, reservation: claim };
+  } finally {
+    if (!keep) {
+      releaseOwnedThread(session, threadId, claim);
+    }
+  }
+}
+
 async function createOwnedThread(conversations, session, reservation, canCreate = () => true) {
   if (!hasThreadReservation(session) || !conversations ||
       typeof conversations.createThread !== "function" || typeof conversations.deleteThread !== "function") {
@@ -797,31 +841,30 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         if (cancelled || !sameSelectionIntent(selectionRef, selectionIntentRef, initialSelection)) {
           return;
         }
-        // 多窗口隔离：认领"最近且没被别的窗口占用"的线程续看；被占（另一窗口正用）或无历史 → 新建空线程给本窗口，
-        // 确保两个浏览器窗口绝不绑同一条线程（否则对话/进度/工作目录全串）。
+        // 多窗口隔离：只认领最近且空闲的历史；其它窗口或 MCP 正在运行的 thread 不接管。
         const latest = list.length > 0 ? list[0].id : null;
-        pendingReservation = latest ? createReservationClaim(reservationRef.current) : null;
-        const acquired = latest ? acquireOwnedThread(session, [latest], pendingReservation) : null;
-        let id = acquired === latest ? latest : null;
-        if (acquired && acquired !== latest) {
-          releaseOwnedThread(session, acquired, pendingReservation);
-        }
-        pendingOwnedId = id;
-        let t = id ? await readAcquiredThread(
+        const existing = latest ? await acquireIdleExistingThread(
           conversations,
           session,
-          id,
-          pendingReservation,
+          latest,
+          reservationRef.current,
           () => !cancelled && sameSelectionIntent(
             selectionRef,
             selectionIntentRef,
             initialSelection,
           ),
         ) : null;
+        pendingReservation = existing?.reservation || null;
+        pendingOwnedId = existing?.thread?.id || null;
+        let t = existing?.thread || null;
+        // acquire helper 返回后会跨一个微任务；绑定前再复核一次，闭合此间启动的外部任务。
+        if (t && session.isRunning(t.id)) {
+          releaseOwnedThread(session, t.id, pendingReservation);
+          pendingOwnedId = null;
+          pendingReservation = null;
+          t = null;
+        }
         if (!t) {
-          if (id) {
-            pendingOwnedId = null;
-          }
           const created = await createOwnedThread(
             conversations,
             session,

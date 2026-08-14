@@ -220,6 +220,42 @@ ok(saveFailureThread.workspace === null, "setThreadWorkspace 保存失败时回�
 ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadWorkspace 保存失败时回滚更新时间");
 saveFailureStore._save = originalSave;
 
+// user append 已同步启动任务后若持久化失败，也必须回滚本次内存 mutation，避免后续成功保存夹带。
+const appendFailureStore = new ConversationStore({ memoryOnly: true });
+const appendFailureThread = await appendFailureStore.createThread(undefined, null, null, () => true);
+const appendOriginalUpdatedAt = appendFailureThread.updatedAt;
+let appendStarted = 0;
+let appendSaveCount = 0;
+const appendSuccessfulSnapshots = [];
+appendFailureStore._save = async () => {
+  appendSaveCount += 1;
+  if (appendSaveCount === 1) {
+    throw new Error("user append save failed");
+  }
+  appendSuccessfulSnapshots.push(JSON.parse(JSON.stringify(appendFailureStore._mem)));
+};
+let appendSaveRejected = false;
+try {
+  await appendFailureStore.appendMessage(
+    appendFailureThread.id,
+    { role: "user", content: "不得夹带的失败消息" },
+    () => true,
+    () => { appendStarted += 1; },
+  );
+} catch (e) {
+  appendSaveRejected = /user append save failed/.test(String(e?.message || e));
+}
+ok(appendSaveRejected, "appendMessage 透传启动后的保存失败");
+ok(appendStarted === 1, "appendMessage 保存失败前只启动一次任务");
+ok(appendFailureThread.messages.length === 0, "appendMessage 保存失败时回滚本次内存消息");
+ok(appendFailureThread.title === "新对话", "appendMessage 保存失败时回滚自动标题");
+ok(appendFailureThread.updatedAt === appendOriginalUpdatedAt, "appendMessage 保存失败时回滚更新时间");
+await appendFailureStore.setThreadWorkspace(appendFailureThread.id, "D:\\after-failure");
+ok(
+  appendSuccessfulSnapshots.at(-1)?.threads[0]?.messages.length === 0,
+  "后续成功持久化快照不夹带失败 user 消息",
+);
+
 // mode/workspace 必须串行修改并保存；前一项失败后，后一项不能把失败值夹带写入。
 const interleavedStore = new ConversationStore({ memoryOnly: true });
 const interleavedThread = await interleavedStore.createThread(undefined, null, null, () => true);
