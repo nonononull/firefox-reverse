@@ -105,13 +105,26 @@ const renewOwnedThread = sourceFunction(
   "function",
   { reservationOwnerToken, isReservationOwnerCurrent },
 );
-const readAcquiredThread = sourceFunction(
-  "readAcquiredThread",
+const currentThreadRunEpoch = sourceFunction("currentThreadRunEpoch", "function");
+const deleteOwnedThread = sourceFunction(
+  "deleteOwnedThread",
   "async function",
-  { renewOwnedThread, releaseOwnedThread },
+  {
+    hasThreadReservation,
+    acquireOwnedThread,
+    currentThreadRunEpoch,
+    createReservationClaim: createClaim,
+    renewOwnedThread,
+    releaseOwnedThread,
+  },
 );
 const discardOwnedThread = sourceFunction(
   "discardOwnedThread",
+  "async function",
+  { deleteOwnedThread, releaseOwnedThread },
+);
+const readAcquiredThread = sourceFunction(
+  "readAcquiredThread",
   "async function",
   { renewOwnedThread, releaseOwnedThread },
 );
@@ -175,19 +188,6 @@ const prepareOwnedThreadRunConfig = sourceFunction(
   { readOwnedThreadRunConfig },
 );
 const restoreUnsentInput = sourceFunction("restoreUnsentInput", "function");
-const currentThreadRunEpoch = sourceFunction("currentThreadRunEpoch", "function");
-const deleteOwnedThread = sourceFunction(
-  "deleteOwnedThread",
-  "async function",
-  {
-    hasThreadReservation,
-    acquireOwnedThread,
-    currentThreadRunEpoch,
-    createReservationClaim: createClaim,
-    renewOwnedThread,
-    releaseOwnedThread,
-  },
-);
 const deleteThreadForSelection = sourceFunction(
   "deleteThreadForSelection",
   "async function",
@@ -672,6 +672,30 @@ function makeClaimSession() {
   );
   assert.equal((await store.getThread(thread.id))?.id, thread.id, "快速 external run 后必须恢复历史 thread");
   assert.equal(deleteSaveCount, 2, "快速 external run 也必须持久化恢复快照");
+}
+
+{
+  const session = makeClaimSession();
+  const owner = createReservationOwner(session, {});
+  const claim = createClaim(owner);
+  assert.equal(acquireOwnedThread(session, ["late-created"], claim), "late-created");
+  let deleted = false;
+  await discardOwnedThread(
+    {
+      async deleteThread(id, canDelete) {
+        session.run(id, {});
+        if (canDelete() !== true) {
+          throw new Error("conversation deletion authorization lost: " + id);
+        }
+        deleted = true;
+      },
+    },
+    session,
+    "late-created",
+    claim,
+  );
+  assert.equal(deleted, false, "迟到创建清理不得删除已经启动的 thread");
+  assert.equal(session.reservations.has("late-created"), false, "迟到创建遇到运行态后放弃临时 claim");
 }
 
 {

@@ -177,6 +177,67 @@ try {
   }
 }
 
+// guarded append 的 durable commit 必须先于 onCommit；清理失败后 fresh Store 仍保留已启动任务的消息。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const files = new Map();
+  const events = [];
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const path = "committed-append-conversations.json";
+  const recoveryPath = path + ".recovery";
+  let failRecoveryRemove = true;
+  globalThis.IOUtils = {
+    async exists(candidate) {
+      return files.has(candidate);
+    },
+    async readJSON(candidate) {
+      if (!files.has(candidate)) {
+        throw new Error("file not found: " + candidate);
+      }
+      return clone(files.get(candidate));
+    },
+    async writeJSON(candidate, value) {
+      files.set(candidate, clone(value));
+      events.push(candidate === recoveryPath ? `journal:${value.phase || "legacy"}` : "canonical");
+    },
+    async remove(candidate) {
+      events.push("remove");
+      if (candidate === recoveryPath && failRecoveryRemove) {
+        failRecoveryRemove = false;
+        throw new Error("committed journal cleanup unavailable");
+      }
+      files.delete(candidate);
+    },
+  };
+  try {
+    const store = new ConversationStore({ memoryOnly: false, path });
+    const thread = await store.createThread(undefined, null, null, () => true);
+    events.length = 0;
+    await assert.rejects(
+      store.appendMessage(
+        thread.id,
+        { role: "user", content: "已经启动的任务必须保留" },
+        () => true,
+        () => { events.push("onCommit"); },
+      ),
+      /committed journal cleanup unavailable/,
+    );
+    const committedWrite = events.indexOf("journal:committed");
+    const onCommit = events.indexOf("onCommit");
+    ok(committedWrite >= 0 && committedWrite < onCommit, "committed journal 在 onCommit 前持久化");
+    const freshStore = new ConversationStore({ memoryOnly: false, path });
+    const recovered = await freshStore.getThread(thread.id);
+    ok(recovered?.messages.at(-1)?.content === "已经启动的任务必须保留", "清理失败后 fresh Store 保留已提交用户消息");
+    ok(!files.has(recoveryPath), "fresh Store replay committed journal 后清理 sidecar");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
 // fresh Store replay 未完成前，读取和 mutation 都必须等待同一个 load Promise。
 {
   const originalIOUtils = globalThis.IOUtils;
@@ -339,6 +400,106 @@ try {
     await assert.rejects(store.listThreads(), /recovery snapshot is malformed/);
     ok(JSON.stringify(files.get(path)) === JSON.stringify(canonical), "畸形 sidecar 不覆盖 canonical");
     ok(files.has(path + ".recovery"), "畸形 sidecar 保留供人工恢复");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
+// 消息深层结构损坏的 sidecar 必须失败关闭，不能只验证 messages 顶层数组。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const malformedMessages = [
+    [null],
+    [{ role: "", content: "x" }],
+    [{ role: 7, content: "x" }],
+    [{ role: "user", content: null }],
+    [{ role: "assistant", content: "x", steps: {} }],
+    [{ role: "assistant", content: "x", steps: [null] }],
+  ];
+  try {
+    for (let index = 0; index < malformedMessages.length; index += 1) {
+      const files = new Map();
+      const path = `malformed-message-${index}.json`;
+      const canonical = { threads: [] };
+      files.set(path, clone(canonical));
+      files.set(path + ".recovery", {
+        schemaVersion: 1,
+        phase: "rollback",
+        snapshot: {
+          threads: [{
+            id: `thread-${index}`,
+            title: "损坏消息",
+            createdAt: 1,
+            updatedAt: 1,
+            messages: malformedMessages[index],
+          }],
+        },
+      });
+      globalThis.IOUtils = {
+        async exists(candidate) { return files.has(candidate); },
+        async readJSON(candidate) { return clone(files.get(candidate)); },
+        async writeJSON(candidate, value) { files.set(candidate, clone(value)); },
+        async remove(candidate) { files.delete(candidate); },
+      };
+      const store = new ConversationStore({ memoryOnly: false, path });
+      await assert.rejects(store.listThreads(), /recovery snapshot is malformed/);
+      ok(JSON.stringify(files.get(path)) === JSON.stringify(canonical), `畸形消息 ${index + 1} 不覆盖 canonical`);
+      ok(files.has(path + ".recovery"), `畸形消息 ${index + 1} 保留 recovery sidecar`);
+    }
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
+// deletion 的 committed sidecar 清理期间失权时仍必须回滚，不能把已失权删除当作成功。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const files = new Map();
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const path = "delete-cleanup-race-conversations.json";
+  const recoveryPath = path + ".recovery";
+  let releaseCleanup;
+  let signalCleanup;
+  let cleanupCount = 0;
+  const cleanupStarted = new Promise(resolve => { signalCleanup = resolve; });
+  const cleanupGate = new Promise(resolve => { releaseCleanup = resolve; });
+  globalThis.IOUtils = {
+    async exists(candidate) { return files.has(candidate); },
+    async readJSON(candidate) {
+      if (!files.has(candidate)) {
+        throw new Error("file not found: " + candidate);
+      }
+      return clone(files.get(candidate));
+    },
+    async writeJSON(candidate, value) { files.set(candidate, clone(value)); },
+    async remove(candidate) {
+      if (candidate === recoveryPath && cleanupCount++ === 0) {
+        signalCleanup();
+        await cleanupGate;
+      }
+      files.delete(candidate);
+    },
+  };
+  try {
+    const store = new ConversationStore({ memoryOnly: false, path });
+    const thread = await store.createThread(undefined, null, null, () => true);
+    let owned = true;
+    const deleting = store.deleteThread(thread.id, () => owned);
+    await cleanupStarted;
+    owned = false;
+    releaseCleanup();
+    await assert.rejects(deleting, /deletion authorization lost/);
+    ok((await store.getThread(thread.id))?.id === thread.id, "sidecar 清理期间失权后恢复被删 thread");
+    ok(files.get(path)?.threads.some(candidate => candidate.id === thread.id), "sidecar 清理期间失权后恢复 canonical");
   } finally {
     if (originalIOUtils === undefined) {
       delete globalThis.IOUtils;

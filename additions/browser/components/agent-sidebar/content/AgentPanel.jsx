@@ -616,12 +616,16 @@ async function createOwnedThread(conversations, session, reservation, canCreate 
 
 async function discardOwnedThread(conversations, session, threadId, reservation) {
   try {
-    await conversations.deleteThread(
+    await deleteOwnedThread(
+      conversations,
+      session,
       threadId,
-      () => renewOwnedThread(session, threadId, reservation, () => {}),
+      reservation,
+      false,
+      true,
     );
   } catch (e) {
-    if (!/deletion authorization lost/.test(String(e?.message || e))) {
+    if (!/(?:deletion authorization lost|正在运行|窗口预留已失效)/.test(String(e?.message || e))) {
       throw e;
     }
   } finally {

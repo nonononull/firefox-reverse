@@ -234,6 +234,22 @@ check("任务刚结束时其他 owner 仍受 TTL 保护", st.acquireThread(["T"]
 st.advance(RESERVE_TTL_MS + 1);
 check("任务结束且 TTL 过期后其他 owner 可回收", st.acquireThread(["T"], "winB", genB, 3), "T");
 
+// 3a-1b) 已过期的同 owner 锚点不能授权后来才启动的 external run。
+st = makeStore();
+genA = st.beginThreadReservation("winA");
+st.acquireThread(["T"], "winA", genA, 1);
+st.setRunning("T", true);
+st.releaseThread("T", "winA", genA, 1);
+st.setRunning("T", false);
+st.advance(RESERVE_TTL_MS + 1);
+st.setRunning("T", true);
+const expiredAnchorGenA = st.beginThreadReservation("winA");
+check(
+  "过期同 owner 锚点不得授权后来启动的 external run",
+  st.acquireThread(["T"], "winA", expiredAnchorGenA, 1),
+  null,
+);
+
 // 3a-2) 临时 claim 放弃必须清掉运行中 owner 锚点；同 owner 也不得借临时 claim 重挂载外部任务
 st = makeStore();
 genA = st.beginThreadReservation("winA");

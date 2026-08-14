@@ -34,6 +34,15 @@ function cloneConversationSnapshot(value) {
         !Array.isArray(thread.messages)) {
       throw new Error("conversation recovery snapshot is malformed");
     }
+    for (const message of thread.messages) {
+      if (!message || typeof message !== "object" || Array.isArray(message) ||
+          typeof message.role !== "string" || !message.role.trim() ||
+          typeof message.content !== "string" ||
+          (Object.hasOwn(message, "steps") && (!Array.isArray(message.steps) ||
+            message.steps.some(step => !step || typeof step !== "object" || Array.isArray(step))))) {
+        throw new Error("conversation recovery snapshot is malformed");
+      }
+    }
     ids.add(thread.id);
   }
   return snapshot;
@@ -106,10 +115,13 @@ export class ConversationStore {
     if (record?.schemaVersion !== RECOVERY_SCHEMA_VERSION) {
       throw new Error("conversation recovery schema is unsupported");
     }
+    if (record.phase !== undefined && record.phase !== "rollback" && record.phase !== "committed") {
+      throw new Error("conversation recovery phase is unsupported");
+    }
     return cloneConversationSnapshot(record.snapshot);
   }
 
-  async _writeRecoverySnapshot(snapshot = this._mem) {
+  async _writeRecoverySnapshot(snapshot = this._mem, phase = "rollback") {
     if (this._memoryOnly) {
       return;
     }
@@ -118,6 +130,7 @@ export class ConversationStore {
       path,
       {
         schemaVersion: RECOVERY_SCHEMA_VERSION,
+        phase,
         snapshot: cloneConversationSnapshot(snapshot),
       },
       { tmpPath: path + ".tmp" },
@@ -136,7 +149,7 @@ export class ConversationStore {
     if (this._memoryOnly) {
       return false;
     }
-    await this._writeRecoverySnapshot(snapshot);
+    await this._writeRecoverySnapshot(snapshot, "rollback");
     return true;
   }
 
@@ -393,8 +406,9 @@ export class ConversationStore {
       if (guardedCommit) {
         requireAuthorization(canAppend, "append", id, t);
       }
+      const rollbackSnapshot = guardedCommit ? cloneConversationSnapshot(d) : null;
       const recoveryPrepared = guardedCommit
-        ? await this._prepareRecoverySnapshot(d)
+        ? await this._prepareRecoverySnapshot(rollbackSnapshot)
         : false;
       if (recoveryPrepared) {
         try {
@@ -441,14 +455,31 @@ export class ConversationStore {
         }
         throw e;
       }
+      let recoveryCommitted = false;
       try {
         if (guardedCommit) {
+          requireAuthorization(canAppend, "append", id, t);
+        }
+        if (recoveryPrepared) {
+          await this._writeRecoverySnapshot(d, "committed");
+          recoveryCommitted = true;
           requireAuthorization(canAppend, "append", id, t);
         }
         if (onCommit) {
           onCommit(t);
         }
       } catch (e) {
+        if (recoveryCommitted) {
+          try {
+            await this._writeRecoverySnapshot(rollbackSnapshot, "rollback");
+          } catch (journalError) {
+            this._recoverySavePending = true;
+            throw new Error(
+              `conversation append rollback journal failed: ${id}: ${String(journalError?.message || journalError)}`,
+              { cause: e },
+            );
+          }
+        }
         if (rollback()) {
           try {
             await this._persistRecoveredSnapshot(recoveryPrepared);
@@ -500,7 +531,8 @@ export class ConversationStore {
       const removedIndex = d.threads.findIndex(t => t.id === id);
       const removed = removedIndex >= 0 ? d.threads[removedIndex] : null;
       if (removed) {
-        const recoveryPrepared = await this._prepareRecoverySnapshot(d);
+        const rollbackSnapshot = cloneConversationSnapshot(d);
+        const recoveryPrepared = await this._prepareRecoverySnapshot(rollbackSnapshot);
         if (recoveryPrepared) {
           try {
             requireAuthorization(canDelete, "deletion", id, removed);
@@ -511,15 +543,31 @@ export class ConversationStore {
         }
         d.threads.splice(removedIndex, 1);
         let deletionSaved = false;
+        let recoveryCommitted = false;
         try {
           await this._save();
           deletionSaved = true;
           // 保存期间 director 仍可能启动任务；完成写入后再同步复核一次，作为删除线性化点。
           requireAuthorization(canDelete, "deletion", id, removed);
           if (recoveryPrepared) {
+            await this._writeRecoverySnapshot(d, "committed");
+            recoveryCommitted = true;
+            requireAuthorization(canDelete, "deletion", id, removed);
             await this._clearRecoverySnapshot();
+            requireAuthorization(canDelete, "deletion", id, removed);
           }
         } catch (e) {
+          if (recoveryCommitted) {
+            try {
+              await this._writeRecoverySnapshot(rollbackSnapshot, "rollback");
+            } catch (journalError) {
+              this._recoverySavePending = true;
+              throw new Error(
+                `conversation deletion rollback journal failed: ${id}: ${String(journalError?.message || journalError)}`,
+                { cause: e },
+              );
+            }
+          }
           if (!d.threads.some(t => t.id === id)) {
             d.threads.splice(Math.min(removedIndex, d.threads.length), 0, removed);
           }

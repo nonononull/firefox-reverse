@@ -311,12 +311,13 @@ export const agentSession = {
       }
       const s = getOrInit(id);
       const r = s.reservation;
-      // 运行中的 thread 只有原窗口 owner 可重挂载续接；无预留的外部任务或其它窗口不得接管。
-      if (s.running && (!r || r.owner !== owner)) {
+      const reservationFresh = r && now - r.ts < RESERVE_TTL_MS;
+      // 运行中的 thread 只有仍在 TTL 内的原窗口 owner 可重挂载；过期锚点不能授权后来启动的外部任务。
+      if (s.running && (!reservationFresh || r.owner !== owner)) {
         continue;
       }
       // 仅「别的 owner 且心跳仍新鲜」= 真有另一个活窗口占用；自己持有 / 无预留 / 预留过期(持有者已销毁) → 认领
-      const liveOther = r && r.owner !== owner && now - r.ts < RESERVE_TTL_MS;
+      const liveOther = reservationFresh && r.owner !== owner;
       if (!liveOther) {
         s.reservation = { owner, generation, claim, ts: now };
         return id;
