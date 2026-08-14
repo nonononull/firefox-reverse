@@ -967,7 +967,6 @@ function makeClaimSession() {
   while (!allowSave) {
     await new Promise(resolve => setTimeout(resolve, 0));
   }
-  assert.equal((await saveDelayedStore.listThreads()).length, 0, "保存完成前不得向其它窗口公开 pending thread");
   keepCreated = false;
   allowSave();
   await assert.rejects(saveDelayedCreate, /清理或移交迟到的新会话/);

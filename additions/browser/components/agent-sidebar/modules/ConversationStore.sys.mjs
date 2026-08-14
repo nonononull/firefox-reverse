@@ -15,6 +15,25 @@ const RECOVERY_SUFFIX = ".recovery";
 const RECOVERY_SCHEMA_VERSION = 1;
 const NEW_TITLE = "新对话";
 
+function isOptionalString(value) {
+  return value === undefined || value === null || typeof value === "string";
+}
+
+function isValidConversationStep(step) {
+  if (!step || typeof step !== "object" || Array.isArray(step) ||
+      (step.kind !== "text" && step.kind !== "think" && step.kind !== "tool")) {
+    return false;
+  }
+  if (step.kind === "text" || step.kind === "think") {
+    return typeof step.text === "string";
+  }
+  return isOptionalString(step.id) && isOptionalString(step.name) &&
+    isOptionalString(step.status) && isOptionalString(step.summary) &&
+    (!Object.hasOwn(step, "images") ||
+      (Array.isArray(step.images) && step.images.every(image => typeof image === "string"))) &&
+    (!Object.hasOwn(step, "shot") || (Number.isInteger(step.shot) && step.shot >= 0));
+}
+
 function cloneConversationSnapshot(value) {
   let snapshot;
   try {
@@ -28,10 +47,16 @@ function cloneConversationSnapshot(value) {
   const ids = new Set();
   for (const thread of snapshot.threads) {
     if (!thread || typeof thread !== "object" || Array.isArray(thread) ||
-        typeof thread.id !== "string" || !thread.id || ids.has(thread.id) ||
-        typeof thread.title !== "string" ||
-        !Number.isFinite(thread.createdAt) || !Number.isFinite(thread.updatedAt) ||
-        !Array.isArray(thread.messages)) {
+         typeof thread.id !== "string" || !thread.id || ids.has(thread.id) ||
+         typeof thread.title !== "string" ||
+         !Number.isFinite(thread.createdAt) || !Number.isFinite(thread.updatedAt) ||
+         !isOptionalString(thread.workspace) ||
+         (thread.mode !== undefined && thread.mode !== null &&
+           thread.mode !== "auto" && thread.mode !== "assist") ||
+         !isOptionalString(thread.envId) ||
+         (thread.modelStrategy !== undefined && thread.modelStrategy !== null &&
+           thread.modelStrategy !== "balanced" && thread.modelStrategy !== "premium") ||
+         !Array.isArray(thread.messages)) {
       throw new Error("conversation recovery snapshot is malformed");
     }
     for (const message of thread.messages) {
@@ -39,7 +64,7 @@ function cloneConversationSnapshot(value) {
           typeof message.role !== "string" || !message.role.trim() ||
           typeof message.content !== "string" ||
           (Object.hasOwn(message, "steps") && (!Array.isArray(message.steps) ||
-            message.steps.some(step => !step || typeof step !== "object" || Array.isArray(step))))) {
+            message.steps.some(step => !isValidConversationStep(step))))) {
         throw new Error("conversation recovery snapshot is malformed");
       }
     }
@@ -174,7 +199,19 @@ export class ConversationStore {
       }
       throw saveError;
     }
-    await this._clearRecoverySnapshot();
+    try {
+      await this._clearRecoverySnapshot();
+    } catch (clearError) {
+      try {
+        await this._writeRecoverySnapshot(this._mem, "rollback");
+      } catch (recoveryError) {
+        throw new Error(
+          `conversation rollback cleanup and recovery refresh both failed: ${String(clearError?.message || clearError)}; ${String(recoveryError?.message || recoveryError)}`,
+          { cause: clearError },
+        );
+      }
+      throw clearError;
+    }
   }
 
   async _load() {
@@ -219,15 +256,23 @@ export class ConversationStore {
     }
   }
 
+  _queue(operation) {
+    const pending = this._mutationQueue.then(operation);
+    this._mutationQueue = pending.catch(() => {});
+    return pending;
+  }
+
   _mutate(operation) {
-    const pending = this._mutationQueue.then(async () => {
+    return this._queue(async () => {
       if (this._loadPromise || this._recoverySavePending) {
         await this._load();
       }
       return operation();
     });
-    this._mutationQueue = pending.catch(() => {});
-    return pending;
+  }
+
+  _read(operation) {
+    return this._queue(async () => operation(await this._load()));
   }
 
   async _save() {
@@ -240,8 +285,7 @@ export class ConversationStore {
 
   /** 线程摘要列表（按更新时间倒序），不含 messages。 */
   async listThreads() {
-    const d = await this._load();
-    return d.threads
+    return this._read(d => d.threads
       .filter(t => !this._creatingIds.has(t.id))
       .map(t => ({
         id: t.id,
@@ -254,12 +298,11 @@ export class ConversationStore {
         modelStrategy: t.modelStrategy || "balanced",
         count: t.messages.length,
       }))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => b.updatedAt - a.updatedAt));
   }
 
   async getThread(id) {
-    const d = await this._load();
-    return d.threads.find(t => t.id === id && !this._creatingIds.has(t.id)) || null;
+    return this._read(d => d.threads.find(t => t.id === id && !this._creatingIds.has(t.id)) || null);
   }
 
   async createThread(title = NEW_TITLE, workspace = null, mode = null, canCreate) {
@@ -469,26 +512,30 @@ export class ConversationStore {
           onCommit(t);
         }
       } catch (e) {
+        const rolledBack = rollback();
+        let rollbackJournalError = null;
         if (recoveryCommitted) {
           try {
             await this._writeRecoverySnapshot(rollbackSnapshot, "rollback");
           } catch (journalError) {
             this._recoverySavePending = true;
-            throw new Error(
-              `conversation append rollback journal failed: ${id}: ${String(journalError?.message || journalError)}`,
-              { cause: e },
-            );
+            rollbackJournalError = journalError;
           }
         }
-        if (rollback()) {
+        if (rolledBack) {
           try {
-            await this._persistRecoveredSnapshot(recoveryPrepared);
+            await this._persistRecoveredSnapshot(recoveryPrepared && !rollbackJournalError);
           } catch (rollbackError) {
             throw new Error(
-              `conversation append rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
+              `conversation append rollback save failed: ${id}: ${String(rollbackJournalError?.message || rollbackJournalError || "journal ok")}; ${String(rollbackError?.message || rollbackError)}`,
               { cause: e },
             );
           }
+        } else if (rollbackJournalError) {
+          throw new Error(
+            `conversation append rollback journal failed: ${id}: ${String(rollbackJournalError?.message || rollbackJournalError)}`,
+            { cause: e },
+          );
         }
         throw e;
       }
@@ -557,29 +604,32 @@ export class ConversationStore {
             requireAuthorization(canDelete, "deletion", id, removed);
           }
         } catch (e) {
+          if (!d.threads.some(t => t.id === id)) {
+            d.threads.splice(Math.min(removedIndex, d.threads.length), 0, removed);
+          }
+          let rollbackJournalError = null;
           if (recoveryCommitted) {
             try {
               await this._writeRecoverySnapshot(rollbackSnapshot, "rollback");
             } catch (journalError) {
               this._recoverySavePending = true;
-              throw new Error(
-                `conversation deletion rollback journal failed: ${id}: ${String(journalError?.message || journalError)}`,
-                { cause: e },
-              );
+              rollbackJournalError = journalError;
             }
-          }
-          if (!d.threads.some(t => t.id === id)) {
-            d.threads.splice(Math.min(removedIndex, d.threads.length), 0, removed);
           }
           if (deletionSaved || recoveryPrepared) {
             try {
-              await this._persistRecoveredSnapshot(recoveryPrepared);
+              await this._persistRecoveredSnapshot(recoveryPrepared && !rollbackJournalError);
             } catch (rollbackError) {
               throw new Error(
-                `conversation deletion rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
+                `conversation deletion rollback save failed: ${id}: ${String(rollbackJournalError?.message || rollbackJournalError || "journal ok")}; ${String(rollbackError?.message || rollbackError)}`,
                 { cause: e },
               );
             }
+          } else if (rollbackJournalError) {
+            throw new Error(
+              `conversation deletion rollback journal failed: ${id}: ${String(rollbackJournalError?.message || rollbackJournalError)}`,
+              { cause: e },
+            );
           }
           throw e;
         }

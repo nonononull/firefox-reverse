@@ -111,6 +111,7 @@ function makeStore() {
     sessions,
     reservationGenerations: ownerGenerations,
     reservationClaims: ownerClaims,
+    RESERVE_TTL_MS,
   });
   const releaseThread = sourceMethod("releaseThread", {
     sessions,
@@ -237,18 +238,22 @@ check("任务结束且 TTL 过期后其他 owner 可回收", st.acquireThread(["
 // 3a-1b) 已过期的同 owner 锚点不能授权后来才启动的 external run。
 st = makeStore();
 genA = st.beginThreadReservation("winA");
+genB = st.beginThreadReservation("winB");
 st.acquireThread(["T"], "winA", genA, 1);
 st.setRunning("T", true);
 st.releaseThread("T", "winA", genA, 1);
 st.setRunning("T", false);
 st.advance(RESERVE_TTL_MS + 1);
 st.setRunning("T", true);
+check("过期 owner 心跳不得续活后来启动的 external run", st.renewThread("T", "winA", genA, 1), false);
 const expiredAnchorGenA = st.beginThreadReservation("winA");
 check(
   "过期同 owner 锚点不得授权后来启动的 external run",
   st.acquireThread(["T"], "winA", expiredAnchorGenA, 1),
   null,
 );
+st.setRunning("T", false);
+check("迟到心跳不得刷新已过期锚点", st.acquireThread(["T"], "winB", genB, 1), "T");
 
 // 3a-2) 临时 claim 放弃必须清掉运行中 owner 锚点；同 owner 也不得借临时 claim 重挂载外部任务
 st = makeStore();

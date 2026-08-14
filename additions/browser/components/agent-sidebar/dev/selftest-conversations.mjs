@@ -211,7 +211,7 @@ try {
   };
   try {
     const store = new ConversationStore({ memoryOnly: false, path });
-    const thread = await store.createThread(undefined, null, null, () => true);
+    const thread = await store.createThread();
     events.length = 0;
     await assert.rejects(
       store.appendMessage(
@@ -229,6 +229,78 @@ try {
     const recovered = await freshStore.getThread(thread.id);
     ok(recovered?.messages.at(-1)?.content === "已经启动的任务必须保留", "清理失败后 fresh Store 保留已提交用户消息");
     ok(!files.has(recoveryPath), "fresh Store replay committed journal 后清理 sidecar");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
+// committed -> rollback journal 首次改写失败时，仍必须恢复内存、canonical 与 fresh Store。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const clone = value => JSON.parse(JSON.stringify(value));
+  async function exerciseRollbackJournalFailure(kind) {
+    const files = new Map();
+    const path = `rollback-journal-${kind}.json`;
+    const recoveryPath = path + ".recovery";
+    let owned = true;
+    let injected = false;
+    globalThis.IOUtils = {
+      async exists(candidate) { return files.has(candidate); },
+      async readJSON(candidate) {
+        if (!files.has(candidate)) {
+          throw new Error("file not found: " + candidate);
+        }
+        return clone(files.get(candidate));
+      },
+      async writeJSON(candidate, value) {
+        if (candidate === recoveryPath && value.phase === "rollback" &&
+            files.get(candidate)?.phase === "committed" && !injected) {
+          injected = true;
+          throw new Error(`${kind} rollback journal unavailable`);
+        }
+        files.set(candidate, clone(value));
+        if (candidate === recoveryPath && value.phase === "committed") {
+          owned = false;
+        }
+      },
+      async remove(candidate) { files.delete(candidate); },
+    };
+    const store = new ConversationStore({ memoryOnly: false, path });
+    const thread = await store.createThread(undefined, null, null, () => true);
+    if (kind === "append") {
+      await assert.rejects(
+        store.appendMessage(
+          thread.id,
+          { role: "user", content: "不得保留的失权消息" },
+          () => owned,
+          () => {},
+        ),
+        /append authorization lost|append rollback journal failed/,
+      );
+      ok(injected, "append 注入 committed -> rollback journal 改写失败");
+      ok(store._mem.threads[0].messages.length === 0, "append journal 改写失败后仍回滚内存消息");
+      ok(files.get(path)?.threads[0]?.messages.length === 0, "append journal 改写失败后仍恢复 canonical");
+      const fresh = new ConversationStore({ memoryOnly: false, path });
+      ok((await fresh.getThread(thread.id))?.messages.length === 0, "append journal 改写失败后 fresh Store 不复活消息");
+    } else {
+      await assert.rejects(
+        store.deleteThread(thread.id, () => owned),
+        /deletion authorization lost|deletion rollback journal failed/,
+      );
+      ok(injected, "deletion 注入 committed -> rollback journal 改写失败");
+      ok(store._mem.threads.some(candidate => candidate.id === thread.id), "deletion journal 改写失败后仍恢复内存 thread");
+      ok(files.get(path)?.threads.some(candidate => candidate.id === thread.id), "deletion journal 改写失败后仍恢复 canonical");
+      const fresh = new ConversationStore({ memoryOnly: false, path });
+      ok((await fresh.getThread(thread.id))?.id === thread.id, "deletion journal 改写失败后 fresh Store 保留 thread");
+    }
+  }
+  try {
+    await exerciseRollbackJournalFailure("append");
+    await exerciseRollbackJournalFailure("deletion");
   } finally {
     if (originalIOUtils === undefined) {
       delete globalThis.IOUtils;
@@ -311,6 +383,35 @@ try {
       globalThis.IOUtils = originalIOUtils;
     }
   }
+}
+
+// 普通 mutation 尚未提交或回滚时，get/list 读取不得观察 provisional _mem。
+{
+  const store = new ConversationStore({ memoryOnly: true });
+  const thread = await store.createThread(undefined, null, null, () => true);
+  let signalSave;
+  let releaseSave;
+  const saveStarted = new Promise(resolve => { signalSave = resolve; });
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  store._save = async () => {
+    signalSave();
+    await saveGate;
+    throw new Error("provisional mode save failed");
+  };
+  const mutation = store.setThreadMode(thread.id, "assist", () => true);
+  await saveStarted;
+  let getSettled = false;
+  let listSettled = false;
+  const pendingGet = store.getThread(thread.id).finally(() => { getSettled = true; });
+  const pendingList = store.listThreads().finally(() => { listSettled = true; });
+  await tick();
+  ok(!getSettled, "mutation 保存完成前 getThread 保持阻断");
+  ok(!listSettled, "mutation 保存完成前 listThreads 保持阻断");
+  releaseSave();
+  await assert.rejects(mutation, /provisional mode save failed/);
+  const [readThread, readList] = await Promise.all([pendingGet, pendingList]);
+  ok(readThread.mode === null, "失败 mutation 后 getThread 只看到回滚值");
+  ok(readList[0]?.mode === null, "失败 mutation 后 listThreads 只看到回滚值");
 }
 
 // 首次 replay 失败后，第二次读取必须重试 canonical 恢复，不能因 _mem 已赋值而放行。
@@ -420,6 +521,19 @@ try {
     [{ role: "user", content: null }],
     [{ role: "assistant", content: "x", steps: {} }],
     [{ role: "assistant", content: "x", steps: [null] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool", images: { length: 1 } }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool", images: [{}] }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool", name: {} }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool", summary: {} }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "tool", shot: {} }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "text", text: {} }] }],
+    [{ role: "assistant", content: "x", steps: [{ kind: "unknown", text: "x" }] }],
+  ];
+  const malformedThreadFields = [
+    { workspace: {} },
+    { mode: {} },
+    { envId: {} },
+    { modelStrategy: {} },
   ];
   try {
     for (let index = 0; index < malformedMessages.length; index += 1) {
@@ -450,6 +564,36 @@ try {
       await assert.rejects(store.listThreads(), /recovery snapshot is malformed/);
       ok(JSON.stringify(files.get(path)) === JSON.stringify(canonical), `畸形消息 ${index + 1} 不覆盖 canonical`);
       ok(files.has(path + ".recovery"), `畸形消息 ${index + 1} 保留 recovery sidecar`);
+    }
+    for (let index = 0; index < malformedThreadFields.length; index += 1) {
+      const files = new Map();
+      const path = `malformed-thread-field-${index}.json`;
+      const canonical = { threads: [] };
+      files.set(path, clone(canonical));
+      files.set(path + ".recovery", {
+        schemaVersion: 1,
+        phase: "rollback",
+        snapshot: {
+          threads: [{
+            id: `thread-field-${index}`,
+            title: "损坏字段",
+            createdAt: 1,
+            updatedAt: 1,
+            messages: [],
+            ...malformedThreadFields[index],
+          }],
+        },
+      });
+      globalThis.IOUtils = {
+        async exists(candidate) { return files.has(candidate); },
+        async readJSON(candidate) { return clone(files.get(candidate)); },
+        async writeJSON(candidate, value) { files.set(candidate, clone(value)); },
+        async remove(candidate) { files.delete(candidate); },
+      };
+      const store = new ConversationStore({ memoryOnly: false, path });
+      await assert.rejects(store.listThreads(), /recovery snapshot is malformed/);
+      ok(JSON.stringify(files.get(path)) === JSON.stringify(canonical), `畸形 thread 字段 ${index + 1} 不覆盖 canonical`);
+      ok(files.has(path + ".recovery"), `畸形 thread 字段 ${index + 1} 保留 recovery sidecar`);
     }
   } finally {
     if (originalIOUtils === undefined) {

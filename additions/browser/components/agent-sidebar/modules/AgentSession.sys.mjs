@@ -336,7 +336,11 @@ export const agentSession = {
         s.reservation?.claim !== claim) {
       return false;                             // 已被别的活窗口接管，不抢回
     }
-    s.reservation.ts = Date.now();
+    const now = Date.now();
+    if (!Number.isFinite(s.reservation.ts) || now - s.reservation.ts >= RESERVE_TTL_MS) {
+      return false;                             // 过期心跳不能复活旧 owner 锚点
+    }
+    s.reservation.ts = now;
     return true;
   },
   /** 释放本窗口对某线程的预留（侧栏切走该线程 / pagehide / 关闭窗口时调）。
