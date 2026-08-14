@@ -1134,7 +1134,6 @@ function makeClaimSession() {
 
   const saveFailStore = new ConversationStore({ memoryOnly: true });
   const saveFailThread = await saveFailStore.createThread(undefined, null, null, () => true);
-  saveFailStore._memoryOnly = false;
   saveFailStore._save = async () => { throw new Error("save failed"); };
   const saveFailSession = makeClaimSession();
   const saveFailState = { started: false };

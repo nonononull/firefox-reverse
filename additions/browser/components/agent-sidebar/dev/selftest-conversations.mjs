@@ -85,6 +85,7 @@ try {
 {
   const originalIOUtils = globalThis.IOUtils;
   const files = new Map();
+  const writes = [];
   const clone = value => JSON.parse(JSON.stringify(value));
   globalThis.IOUtils = {
     async exists(path) {
@@ -97,6 +98,7 @@ try {
       return clone(files.get(path));
     },
     async writeJSON(path, value) {
+      writes.push({ path, value: clone(value) });
       files.set(path, clone(value));
     },
     async remove(path) {
@@ -110,6 +112,7 @@ try {
     const appendSave = appendStore._save.bind(appendStore);
     let appendOwned = true;
     let appendSaveCount = 0;
+    writes.length = 0;
     appendStore._save = async () => {
       appendSaveCount += 1;
       if (appendSaveCount === 1) {
@@ -128,6 +131,10 @@ try {
       ),
       /append rollback save failed/,
     );
+    ok(
+      writes[0]?.path === appendPath + ".recovery" && writes[1]?.path === appendPath,
+      "append 在 provisional canonical 前先持久化 recovery sidecar",
+    );
     const freshAppendStore = new ConversationStore({ memoryOnly: false, path: appendPath });
     const recoveredAppend = await freshAppendStore.getThread(appendThread.id);
     ok(recoveredAppend?.messages.length === 0, "fresh Store 从 durable recovery 恢复未提交的 append");
@@ -139,6 +146,7 @@ try {
     const deleteSave = deleteStore._save.bind(deleteStore);
     let deleteOwned = true;
     let deleteSaveCount = 0;
+    writes.length = 0;
     deleteStore._save = async () => {
       deleteSaveCount += 1;
       if (deleteSaveCount === 1) {
@@ -152,10 +160,185 @@ try {
       deleteStore.deleteThread(deleteThread.id, () => deleteOwned),
       /deletion rollback save failed/,
     );
+    ok(
+      writes[0]?.path === deletePath + ".recovery" && writes[1]?.path === deletePath,
+      "deletion 在 provisional canonical 前先持久化 recovery sidecar",
+    );
     const freshDeleteStore = new ConversationStore({ memoryOnly: false, path: deletePath });
     const recoveredDelete = await freshDeleteStore.getThread(deleteThread.id);
     ok(recoveredDelete?.id === deleteThread.id, "fresh Store 从 durable recovery 恢复未提交的 deletion");
     ok(!files.has(deletePath + ".recovery"), "deletion 恢复成功后清理 durable recovery sidecar");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
+// fresh Store replay 未完成前，读取和 mutation 都必须等待同一个 load Promise。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const files = new Map();
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const path = "replay-concurrency-conversations.json";
+  const recoveryPath = path + ".recovery";
+  const recovered = {
+    threads: [{
+      id: "replay-thread",
+      title: "恢复前",
+      createdAt: 1,
+      updatedAt: 1,
+      workspace: null,
+      mode: null,
+      envId: null,
+      modelStrategy: "balanced",
+      messages: [],
+    }],
+  };
+  files.set(path, { threads: [] });
+  files.set(recoveryPath, { schemaVersion: 1, snapshot: clone(recovered) });
+  let canonicalWriteCount = 0;
+  let signalReplayWrite;
+  let releaseReplayWrite;
+  const replayWriteStarted = new Promise(resolve => { signalReplayWrite = resolve; });
+  const replayWriteGate = new Promise(resolve => { releaseReplayWrite = resolve; });
+  globalThis.IOUtils = {
+    async exists(candidate) {
+      return files.has(candidate);
+    },
+    async readJSON(candidate) {
+      if (!files.has(candidate)) {
+        throw new Error("file not found: " + candidate);
+      }
+      return clone(files.get(candidate));
+    },
+    async writeJSON(candidate, value) {
+      if (candidate === path) {
+        canonicalWriteCount += 1;
+        if (canonicalWriteCount === 1) {
+          signalReplayWrite();
+          await replayWriteGate;
+        }
+      }
+      files.set(candidate, clone(value));
+    },
+    async remove(candidate) {
+      files.delete(candidate);
+    },
+  };
+  try {
+    const store = new ConversationStore({ memoryOnly: false, path });
+    const firstRead = store.getThread("replay-thread");
+    await replayWriteStarted;
+    let secondReadSettled = false;
+    let mutationSettled = false;
+    const secondRead = store.getThread("replay-thread").finally(() => { secondReadSettled = true; });
+    const mutation = store.renameThread("replay-thread", "恢复后修改").finally(() => { mutationSettled = true; });
+    await tick();
+    ok(!secondReadSettled, "首次 recovery replay 完成前并发读取保持阻断");
+    ok(!mutationSettled, "首次 recovery replay 完成前并发 mutation 保持阻断");
+    releaseReplayWrite();
+    await Promise.all([firstRead, secondRead, mutation]);
+    ok(files.get(path)?.threads[0]?.title === "恢复后修改", "replay 完成后 mutation 不被迟到旧快照覆盖");
+    ok(!files.has(recoveryPath), "replay 与后续 mutation 完成后清理 sidecar");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
+// 首次 replay 失败后，第二次读取必须重试 canonical 恢复，不能因 _mem 已赋值而放行。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const files = new Map();
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const path = "replay-retry-conversations.json";
+  const recoveryPath = path + ".recovery";
+  const recovered = {
+    threads: [{
+      id: "retry-thread",
+      title: "待重试",
+      createdAt: 1,
+      updatedAt: 1,
+      workspace: null,
+      mode: null,
+      envId: null,
+      modelStrategy: "balanced",
+      messages: [],
+    }],
+  };
+  files.set(path, { threads: [] });
+  files.set(recoveryPath, { schemaVersion: 1, snapshot: clone(recovered) });
+  let canonicalWriteCount = 0;
+  globalThis.IOUtils = {
+    async exists(candidate) {
+      return files.has(candidate);
+    },
+    async readJSON(candidate) {
+      if (!files.has(candidate)) {
+        throw new Error("file not found: " + candidate);
+      }
+      return clone(files.get(candidate));
+    },
+    async writeJSON(candidate, value) {
+      if (candidate === path && ++canonicalWriteCount === 1) {
+        throw new Error("replay canonical unavailable");
+      }
+      files.set(candidate, clone(value));
+    },
+    async remove(candidate) {
+      files.delete(candidate);
+    },
+  };
+  try {
+    const store = new ConversationStore({ memoryOnly: false, path });
+    await assert.rejects(store.getThread("retry-thread"), /replay canonical unavailable/);
+    ok(files.has(recoveryPath), "首次 replay 失败后保留 sidecar");
+    ok((await store.getThread("retry-thread"))?.title === "待重试", "第二次读取重试并完成 recovery replay");
+    ok(canonicalWriteCount === 2, "第二次读取实际重试 canonical 写入");
+    ok(!files.has(recoveryPath), "重试成功后清理 sidecar");
+  } finally {
+    if (originalIOUtils === undefined) {
+      delete globalThis.IOUtils;
+    } else {
+      globalThis.IOUtils = originalIOUtils;
+    }
+  }
+}
+
+// 可解析但线程结构损坏的 sidecar 必须失败关闭，不能覆盖 canonical。
+{
+  const originalIOUtils = globalThis.IOUtils;
+  const files = new Map();
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const path = "malformed-recovery-conversations.json";
+  const canonical = { threads: [] };
+  files.set(path, clone(canonical));
+  files.set(path + ".recovery", { schemaVersion: 1, snapshot: { threads: [{}] } });
+  globalThis.IOUtils = {
+    async exists(candidate) {
+      return files.has(candidate);
+    },
+    async readJSON(candidate) {
+      return clone(files.get(candidate));
+    },
+    async writeJSON(candidate, value) {
+      files.set(candidate, clone(value));
+    },
+    async remove(candidate) {
+      files.delete(candidate);
+    },
+  };
+  try {
+    const store = new ConversationStore({ memoryOnly: false, path });
+    await assert.rejects(store.listThreads(), /recovery snapshot is malformed/);
+    ok(JSON.stringify(files.get(path)) === JSON.stringify(canonical), "畸形 sidecar 不覆盖 canonical");
+    ok(files.has(path + ".recovery"), "畸形 sidecar 保留供人工恢复");
   } finally {
     if (originalIOUtils === undefined) {
       delete globalThis.IOUtils;
@@ -564,7 +747,7 @@ deleteRollbackStore._save = async () => {
   if (deleteRollbackSaveCount === 2) {
     throw new Error("delete rollback save failed");
   }
-  if (deleteRollbackSaveCount === 3) {
+  if (deleteRollbackSaveCount === 3 || deleteRollbackSaveCount === 4) {
     throw new Error("delete recovery unavailable");
   }
 };
@@ -575,7 +758,14 @@ try {
   deleteRollbackRejected = /deletion rollback save failed/.test(String(e?.message || e));
 }
 ok(deleteRollbackRejected, "deleteThread 回滚二次保存失败时显式进入恢复态");
-ok((await deleteRollbackStore.getThread(deleteRollbackThread.id)) !== null, "删除回滚失败后内存保留原线程");
+let deleteRecoveryReadBlocked = false;
+try {
+  await deleteRollbackStore.getThread(deleteRollbackThread.id);
+} catch (e) {
+  deleteRecoveryReadBlocked = /delete recovery unavailable/.test(String(e?.message || e));
+}
+ok(deleteRecoveryReadBlocked, "删除恢复完成前读取也保持失败关闭");
+ok(deleteRollbackStore._mem.threads.some(thread => thread.id === deleteRollbackThread.id), "删除回滚失败后内存保留原线程");
 let deleteRecoveryBlocked = false;
 try {
   await deleteRollbackStore.renameThread(deleteRollbackThread.id, "不得提前修改");
@@ -585,7 +775,7 @@ try {
 ok(deleteRecoveryBlocked, "删除恢复快照仍无法保存时阻断后续 mutation");
 ok(deleteRollbackThread.title === "新对话", "删除恢复完成前不得修改 thread");
 ok(
-  deleteRollbackSnapshots[2]?.threads[0]?.title === "新对话",
+  deleteRollbackSnapshots[3]?.threads[0]?.title === "新对话",
   "删除恢复写必须发生在后续 mutation 修改内存之前",
 );
 await deleteRollbackStore.renameThread(deleteRollbackThread.id, "恢复后允许修改");

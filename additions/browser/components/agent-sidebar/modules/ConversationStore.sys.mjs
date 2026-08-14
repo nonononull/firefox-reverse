@@ -16,10 +16,27 @@ const RECOVERY_SCHEMA_VERSION = 1;
 const NEW_TITLE = "新对话";
 
 function cloneConversationSnapshot(value) {
-  if (!value || !Array.isArray(value.threads)) {
+  let snapshot;
+  try {
+    snapshot = JSON.parse(JSON.stringify(value));
+  } catch {
     throw new Error("conversation recovery snapshot is malformed");
   }
-  return JSON.parse(JSON.stringify(value));
+  if (!snapshot || !Array.isArray(snapshot.threads)) {
+    throw new Error("conversation recovery snapshot is malformed");
+  }
+  const ids = new Set();
+  for (const thread of snapshot.threads) {
+    if (!thread || typeof thread !== "object" || Array.isArray(thread) ||
+        typeof thread.id !== "string" || !thread.id || ids.has(thread.id) ||
+        typeof thread.title !== "string" ||
+        !Number.isFinite(thread.createdAt) || !Number.isFinite(thread.updatedAt) ||
+        !Array.isArray(thread.messages)) {
+      throw new Error("conversation recovery snapshot is malformed");
+    }
+    ids.add(thread.id);
+  }
+  return snapshot;
 }
 
 function requireAuthorization(guard, operation, id, value) {
@@ -92,7 +109,7 @@ export class ConversationStore {
     return cloneConversationSnapshot(record.snapshot);
   }
 
-  async _writeRecoverySnapshot() {
+  async _writeRecoverySnapshot(snapshot = this._mem) {
     if (this._memoryOnly) {
       return;
     }
@@ -101,7 +118,7 @@ export class ConversationStore {
       path,
       {
         schemaVersion: RECOVERY_SCHEMA_VERSION,
-        snapshot: cloneConversationSnapshot(this._mem),
+        snapshot: cloneConversationSnapshot(snapshot),
       },
       { tmpPath: path + ".tmp" },
     );
@@ -109,18 +126,29 @@ export class ConversationStore {
 
   async _clearRecoverySnapshot() {
     if (!this._memoryOnly) {
+      this._recoverySavePending = true;
       await IOUtils.remove(await this._recoveryPath(), { ignoreAbsent: true });
     }
     this._recoverySavePending = false;
   }
 
-  async _persistRecoveredSnapshot() {
+  async _prepareRecoverySnapshot(snapshot) {
+    if (this._memoryOnly) {
+      return false;
+    }
+    await this._writeRecoverySnapshot(snapshot);
+    return true;
+  }
+
+  async _persistRecoveredSnapshot(recoveryPrepared = false) {
     this._recoverySavePending = true;
     let recoveryWriteError = null;
-    try {
-      await this._writeRecoverySnapshot();
-    } catch (e) {
-      recoveryWriteError = e;
+    if (!recoveryPrepared) {
+      try {
+        await this._writeRecoverySnapshot();
+      } catch (e) {
+        recoveryWriteError = e;
+      }
     }
     try {
       await this._save();
@@ -137,13 +165,18 @@ export class ConversationStore {
   }
 
   async _load() {
-    if (this._mem) {
-      return this._mem;
-    }
     if (this._loadPromise) {
       return this._loadPromise;
     }
+    if (this._mem && !this._recoverySavePending) {
+      return this._mem;
+    }
     const loading = (async () => {
+      if (this._mem) {
+        await this._save();
+        await this._clearRecoverySnapshot();
+        return this._mem;
+      }
       if (this._memoryOnly) {
         return (this._mem = { threads: [] });
       }
@@ -175,9 +208,8 @@ export class ConversationStore {
 
   _mutate(operation) {
     const pending = this._mutationQueue.then(async () => {
-      if (this._recoverySavePending) {
-        await this._save();
-        await this._clearRecoverySnapshot();
+      if (this._loadPromise || this._recoverySavePending) {
+        await this._load();
       }
       return operation();
     });
@@ -357,8 +389,20 @@ export class ConversationStore {
       if (!t) {
         throw new Error("conversation thread not found: " + id);
       }
-      if (canAppend !== null || onCommit !== null) {
+      const guardedCommit = canAppend !== null || onCommit !== null;
+      if (guardedCommit) {
         requireAuthorization(canAppend, "append", id, t);
+      }
+      const recoveryPrepared = guardedCommit
+        ? await this._prepareRecoverySnapshot(d)
+        : false;
+      if (recoveryPrepared) {
+        try {
+          requireAuthorization(canAppend, "append", id, t);
+        } catch (e) {
+          await this._clearRecoverySnapshot();
+          throw e;
+        }
       }
       const previous = {
         messageCount: t.messages.length,
@@ -385,11 +429,20 @@ export class ConversationStore {
       try {
         await this._save();
       } catch (e) {
-        rollback();
+        if (rollback() && recoveryPrepared) {
+          try {
+            await this._persistRecoveredSnapshot(true);
+          } catch (rollbackError) {
+            throw new Error(
+              `conversation append provisional recovery failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
+              { cause: e },
+            );
+          }
+        }
         throw e;
       }
       try {
-        if (canAppend !== null || onCommit !== null) {
+        if (guardedCommit) {
           requireAuthorization(canAppend, "append", id, t);
         }
         if (onCommit) {
@@ -398,7 +451,7 @@ export class ConversationStore {
       } catch (e) {
         if (rollback()) {
           try {
-            await this._persistRecoveredSnapshot();
+            await this._persistRecoveredSnapshot(recoveryPrepared);
           } catch (rollbackError) {
             throw new Error(
               `conversation append rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
@@ -407,6 +460,9 @@ export class ConversationStore {
           }
         }
         throw e;
+      }
+      if (recoveryPrepared) {
+        await this._clearRecoverySnapshot();
       }
       return t;
     });
@@ -444,6 +500,15 @@ export class ConversationStore {
       const removedIndex = d.threads.findIndex(t => t.id === id);
       const removed = removedIndex >= 0 ? d.threads[removedIndex] : null;
       if (removed) {
+        const recoveryPrepared = await this._prepareRecoverySnapshot(d);
+        if (recoveryPrepared) {
+          try {
+            requireAuthorization(canDelete, "deletion", id, removed);
+          } catch (e) {
+            await this._clearRecoverySnapshot();
+            throw e;
+          }
+        }
         d.threads.splice(removedIndex, 1);
         let deletionSaved = false;
         try {
@@ -451,13 +516,16 @@ export class ConversationStore {
           deletionSaved = true;
           // 保存期间 director 仍可能启动任务；完成写入后再同步复核一次，作为删除线性化点。
           requireAuthorization(canDelete, "deletion", id, removed);
+          if (recoveryPrepared) {
+            await this._clearRecoverySnapshot();
+          }
         } catch (e) {
           if (!d.threads.some(t => t.id === id)) {
             d.threads.splice(Math.min(removedIndex, d.threads.length), 0, removed);
           }
-          if (deletionSaved) {
+          if (deletionSaved || recoveryPrepared) {
             try {
-              await this._persistRecoveredSnapshot();
+              await this._persistRecoveredSnapshot(recoveryPrepared);
             } catch (rollbackError) {
               throw new Error(
                 `conversation deletion rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
