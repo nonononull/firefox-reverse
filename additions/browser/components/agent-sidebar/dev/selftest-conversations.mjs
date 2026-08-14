@@ -142,7 +142,46 @@ await guardedStore.appendMessage(
     commitOrder.push("start");
   },
 );
-ok(commitOrder.join(",") === "guard,start", "所有权复核、消息追加与启动按同步顺序提交");
+ok(commitOrder.join(",") === "guard,guard,start", "持久化前后复核所有权，最终复核与启动同步相邻");
+
+const finalGuardStore = new ConversationStore({ memoryOnly: true });
+const finalGuardThread = await finalGuardStore.createThread(undefined, null, null, () => true);
+let releaseFinalSave;
+let signalFinalSave;
+const finalSaveStarted = new Promise(resolve => { signalFinalSave = resolve; });
+const finalSaveGate = new Promise(resolve => { releaseFinalSave = resolve; });
+let finalSaveCount = 0;
+const finalSaveSnapshots = [];
+finalGuardStore._save = async () => {
+  finalSaveCount += 1;
+  finalSaveSnapshots.push(JSON.parse(JSON.stringify(finalGuardStore._mem)));
+  if (finalSaveCount === 1) {
+    signalFinalSave();
+    await finalSaveGate;
+  }
+};
+let finalAppendOwned = true;
+let finalStartCount = 0;
+const finalGuardAppend = finalGuardStore.appendMessage(
+  finalGuardThread.id,
+  { role: "user", content: "保存期间不得迟到启动" },
+  () => finalAppendOwned,
+  () => { finalStartCount += 1; },
+);
+await finalSaveStarted;
+finalAppendOwned = false;
+releaseFinalSave();
+let finalGuardRejected = false;
+try {
+  await finalGuardAppend;
+} catch (e) {
+  finalGuardRejected = /append authorization lost/.test(String(e?.message || e));
+}
+ok(finalGuardRejected, "appendMessage 持久化后在线性化点失权时失败关闭");
+ok(finalStartCount === 0, "appendMessage 持久化期间失权不得启动任务");
+ok(finalSaveCount === 2, "appendMessage 最终失权后持久化回滚快照");
+ok(finalSaveSnapshots.at(-1)?.threads[0]?.messages.length === 0, "最终失权的用户消息不留在持久化快照");
+ok((await finalGuardStore.getThread(finalGuardThread.id)).messages.length === 0, "最终失权的用户消息不留在内存");
 
 const modeLoad = guardedStore._load.bind(guardedStore);
 let allowModeLoad;
@@ -220,7 +259,7 @@ ok(saveFailureThread.workspace === null, "setThreadWorkspace 保存失败时回�
 ok(saveFailureThread.updatedAt === originalUpdatedAt, "setThreadWorkspace 保存失败时回滚更新时间");
 saveFailureStore._save = originalSave;
 
-// user append 已同步启动任务后若持久化失败，也必须回滚本次内存 mutation，避免后续成功保存夹带。
+// user append 必须先持久化成功再启动；保存失败时不得执行 onCommit，也不得污染后续快照。
 const appendFailureStore = new ConversationStore({ memoryOnly: true });
 const appendFailureThread = await appendFailureStore.createThread(undefined, null, null, () => true);
 const appendOriginalUpdatedAt = appendFailureThread.updatedAt;
@@ -245,8 +284,8 @@ try {
 } catch (e) {
   appendSaveRejected = /user append save failed/.test(String(e?.message || e));
 }
-ok(appendSaveRejected, "appendMessage 透传启动后的保存失败");
-ok(appendStarted === 1, "appendMessage 保存失败前只启动一次任务");
+ok(appendSaveRejected, "appendMessage 透传启动前的保存失败");
+ok(appendStarted === 0, "appendMessage 保存失败时不得启动任务");
 ok(appendFailureThread.messages.length === 0, "appendMessage 保存失败时回滚本次内存消息");
 ok(appendFailureThread.title === "新对话", "appendMessage 保存失败时回滚自动标题");
 ok(appendFailureThread.updatedAt === appendOriginalUpdatedAt, "appendMessage 保存失败时回滚更新时间");

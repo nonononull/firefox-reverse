@@ -438,7 +438,10 @@ function acquireOwnedThread(session, candidateIds, reservation) {
 function releaseOwnedThread(session, threadId, reservation, abandonRunning = false) {
   try {
     if (session && typeof session.releaseThread === "function" && threadId &&
-        isReservationOwnerCurrent(reservation)) {
+        (isReservationOwnerCurrent(reservation) || (abandonRunning === true &&
+          typeof reservation?.owner === "string" && reservation.owner &&
+          Number.isInteger(reservation.generation) && reservation.generation > 0 &&
+          Number.isInteger(reservation.claim) && reservation.claim > 0))) {
       return session.releaseThread(
         threadId,
         reservationOwnerToken(reservation),

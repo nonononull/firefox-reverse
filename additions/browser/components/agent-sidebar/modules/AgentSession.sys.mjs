@@ -339,11 +339,14 @@ export const agentSession = {
   /** 释放本窗口对某线程的预留（侧栏切走该线程 / pagehide / 关闭窗口时调）。
    *  运行中的线程保留不续时的 owner 锚点，让同一窗口可重挂载、其它窗口不能接管；任务结束后按 TTL 回收。
    *  尚未绑定到窗口的临时 claim 可用 abandonRunning=true 放弃；即使任务已在竞态窗口启动，也不留下 owner 锚点。
-   *  仅精确匹配 owner 与 generation 时释放；旧式缺参调用失败关闭。引擎后台仍跑不受影响。 */
+   *  abandon 允许旧 generation 清理自己仍精确持有的 claim；新 generation 已接管时仍失败关闭。
+   *  普通释放只接受当前 generation，旧式缺参调用失败关闭。引擎后台仍跑不受影响。 */
   releaseThread(threadId, owner, generation, claim, abandonRunning = false) {
     const s = sessions.get(threadId);
-    if (!s || !s.reservation || reservationGenerations.get(owner) !== generation ||
-        !Number.isInteger(claim) || claim <= 0) {
+    if (!s || !s.reservation || typeof owner !== "string" || !owner ||
+        !Number.isInteger(generation) || generation <= 0 ||
+        !Number.isInteger(claim) || claim <= 0 ||
+        (abandonRunning !== true && reservationGenerations.get(owner) !== generation)) {
       return false;
     }
     if (s.reservation.owner !== owner || s.reservation.generation !== generation ||

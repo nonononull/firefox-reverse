@@ -285,24 +285,39 @@ export class ConversationStore {
       if (t.title === NEW_TITLE && msg.role === "user" && msg.content) {
         t.title = msg.content.replace(/\s+/g, " ").trim().slice(0, 30) || NEW_TITLE;
       }
-      try {
-        if (onCommit) {
-          onCommit(t);
-        }
-      } catch (e) {
-        t.messages.length = previous.messageCount;
-        t.title = previous.title;
-        t.updatedAt = previous.updatedAt;
-        throw e;
-      }
-      try {
-        await this._save();
-      } catch (e) {
+      const rollback = () => {
         if (t.messages.length === previous.messageCount + 1 &&
             t.messages.at(-1) === appended && t.updatedAt === mutationUpdatedAt) {
           t.messages.length = previous.messageCount;
           t.title = previous.title;
           t.updatedAt = previous.updatedAt;
+          return true;
+        }
+        return false;
+      };
+      try {
+        await this._save();
+      } catch (e) {
+        rollback();
+        throw e;
+      }
+      try {
+        if (canAppend !== null || onCommit !== null) {
+          requireAuthorization(canAppend, "append", id, t);
+        }
+        if (onCommit) {
+          onCommit(t);
+        }
+      } catch (e) {
+        if (rollback()) {
+          try {
+            await this._save();
+          } catch (rollbackError) {
+            throw new Error(
+              `conversation append rollback save failed: ${id}: ${String(rollbackError?.message || rollbackError)}`,
+              { cause: e },
+            );
+          }
         }
         throw e;
       }

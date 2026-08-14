@@ -238,7 +238,7 @@ function makeClaimSession() {
     },
     releaseThread(id, owner, generation, claim, abandonRunning = false) {
       const held = reservations.get(id);
-      if (generations.get(owner) !== generation || held?.owner !== owner ||
+      if ((!abandonRunning && generations.get(owner) !== generation) || held?.owner !== owner ||
           held?.generation !== generation || held?.claim !== claim) {
         return false;
       }
@@ -401,6 +401,11 @@ function makeClaimSession() {
     releaseOwnedThread(session, "shared", oldClaim),
     false,
     "旧挂载不得释放新挂载继承的同 owner reservation",
+  );
+  assert.equal(
+    releaseOwnedThread(session, "shared", oldClaim, true),
+    false,
+    "旧挂载的 abandon 不得释放新挂载继承的 reservation",
   );
   const genB = session.beginThreadReservation("window-b");
   assert.equal(session.acquireThread(["shared"], "window-b", genB, 1), null);
@@ -896,6 +901,7 @@ function makeClaimSession() {
     await new Promise(resolve => setTimeout(resolve, 0));
   }
   runningSession.run(runningThread.id, {});
+  const runningRemount = createReservationOwner(runningSession, runningHost);
   allowRunningRead();
   await assert.rejects(runningRead, /running|运行/);
   assert.equal(
@@ -903,7 +909,6 @@ function makeClaimSession() {
     false,
     "历史读取期间启动外部任务后必须放弃临时 claim",
   );
-  const runningRemount = createReservationOwner(runningSession, runningHost);
   const runningRemountClaim = createClaim(runningRemount);
   assert.equal(
     acquireOwnedThread(runningSession, [runningThread.id], runningRemountClaim),
@@ -1023,8 +1028,9 @@ function makeClaimSession() {
     ),
     /save failed/,
   );
-  assert.equal(saveFailState.started, true, "任务启动后保存失败必须保留 started 状态");
-  assert.equal(saveFailSession.runCalls.length, 1, "保存失败不得触发第二次任务启动");
+  assert.equal(saveFailState.started, false, "用户消息保存失败时不得标记任务已启动");
+  assert.equal(saveFailSession.runCalls.length, 0, "用户消息保存失败时不得启动任务");
+  assert.equal((await saveFailStore.getThread(saveFailThread.id)).messages.length, 0, "保存失败不得残留用户消息");
 
   const configIntentRef = { current: 0 };
   const sendConfigIntent = captureThreadConfigIntent(configIntentRef);

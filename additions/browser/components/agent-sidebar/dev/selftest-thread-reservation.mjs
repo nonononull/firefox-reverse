@@ -157,6 +157,36 @@ check("临时放弃后其他 owner 仍不得接管运行任务", st.acquireThrea
 st.setRunning("T", false);
 check("临时放弃的任务结束后无需等待旧锚点 TTL", st.acquireThread(["T"], "winB", genB, 2), "T");
 
+// 3a-3) 新 generation 已发布但尚未接管时，旧临时 claim 仍负责精确清理；已接管后不得误清
+st = makeStore();
+const transientGenA = st.beginThreadReservation("winA");
+st.acquireThread(["T"], "winA", transientGenA, 1);
+st.setRunning("T", true);
+const pendingGenA = st.beginThreadReservation("winA");
+check(
+  "旧 generation 可精确放弃尚未接管的临时 claim",
+  st.releaseThread("T", "winA", transientGenA, 1, true),
+  true,
+);
+check(
+  "旧临时 claim 清理后新 generation 不得接管外部运行任务",
+  st.acquireThread(["T"], "winA", pendingGenA, 1),
+  null,
+);
+
+st = makeStore();
+const replacedGenA = st.beginThreadReservation("winA");
+st.acquireThread(["T"], "winA", replacedGenA, 1);
+st.setRunning("T", true);
+const currentGenA = st.beginThreadReservation("winA");
+check("新 generation 可接管原 owner 运行锚点", st.acquireThread(["T"], "winA", currentGenA, 1), "T");
+check(
+  "旧 generation 不得放弃新 generation 的 reservation",
+  st.releaseThread("T", "winA", replacedGenA, 1, true),
+  false,
+);
+check("旧 generation 清理失败后新 reservation 仍可续约", st.renewThread("T", "winA", currentGenA, 1), true);
+
 // 3b) 同一挂载的新 claim 可接管自己的 reservation；旧异步操作不能续约或释放新 claim
 st = makeStore();
 genA = st.beginThreadReservation("winA");
