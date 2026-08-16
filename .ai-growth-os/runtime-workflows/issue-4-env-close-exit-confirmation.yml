@@ -15,7 +15,7 @@ approved_decision_ref: "session-plan:issue-4-env-close-exit-confirmation#decisio
 selected_business_path: "github-issue-pr-merge"
 snapshot_ref: "git:96ad3526cc201f49512661fa83e4df8ca54d3793"
 task_scope_boundary: project-local-owner-scope
-task_current_state: red-test-preparation
+task_current_state: local-verification-passed-review-pending
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 vault 无 Firefox-Reverse env_close 专用 workflow card；复用项目 TDD、完整轻量门禁与 exact-head 审查合同。"
@@ -46,8 +46,8 @@ stop_gates:
   - fixed-model-provider-unavailable-before-required-independent-review
   - commit-push-pr-or-merge-without-explicit-owner-authorization
 execution_evidence:
-  test: pending-red-then-green
-  build: pending
+  test: "baseline mutation RED confirmed; focused EnvironmentBackend selftest GREEN"
+  build: "git:3e759165f215ed233a1ae6556e61b916e675b56f bundle 210.1kb and 13/13 selftest files passed"
   review: blocked-fixed-model-provider-503
-  verification: pending
-  closeout: pending
+  verification: "branding 22; official-registry high audit passed with one existing moderate; lockfile unchanged; mirror/diff/clean passed"
+  closeout: pending-exact-head-review-and-delivery-authorization

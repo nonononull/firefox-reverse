@@ -74,10 +74,18 @@ git status --short
 ## Issue #4 交付边界
 
 ```powershell
-npm audit --prefix .\additions\browser\components\agent-sidebar --audit-level=high
+npm audit --prefix .\additions\browser\components\agent-sidebar --audit-level=high --registry=https://registry.npmjs.org
 git diff --check
 git diff --name-only ddd9b620188804fc23636c057c827d6ed9746ee5...HEAD
 git status --short
 ```
 
 Issue #4 只允许 owner-scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档发生变化。不得启动 Firefox、处置真实 PID、修改 Reverse Lab 状态或把本地验证表述为 hosted CI。
+
+## Issue #4 当前验证快照
+
+- 实现提交：`3e759165f215ed233a1ae6556e61b916e675b56f`，tree `32b34289230230d61d7c047f51ca17ef249d4f81`。
+- 完整轻量门禁：`npm ci`、bundle `210.1kb`、固定 13/13 Node 自测文件与 branding 22 全部通过；环境自测包含最终失败关闭合同。
+- audit 首次沿用本机 `https://registry.npmmirror.com`，因该镜像返回 `NOT_IMPLEMENTED` 而失败。未重跑产品全链；同一 clean HEAD 上改用官方 registry 后 high/critical 门禁通过，仅报告既有 esbuild 开发依赖 1 个 moderate，其建议需要 breaking upgrade。
+- `package-lock.json` SHA-256 在安装、构建、自测与 audit 前后均为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`；两份环境后端一致，`git diff --check` 通过，验证结束时工作树 clean。
+- 本仓库没有 pull-request CI；上述均为 Windows / Node `v22.23.1` / npm `10.9.8` 的本地证据，不能表述为 hosted CI。

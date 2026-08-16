@@ -27,5 +27,7 @@
 - focused：最终环境自测通过；本地失败、持久化 PID 失败、dead/alive/unknown 和确认成功清理均为确定性 fake，不启动或终止真实进程。
 - 测试纠错：首个 GREEN fake 提供了立即完成的 `wait()`，但 `Promise.race` 的 15 秒计时器仍保持 Node 事件循环，导致命令约 15.9 秒才退出。改为同义的“本地句柄无 wait、PID 仍 alive”交错后，最终 focused 约 0.7 秒通过，旧生产仍保持相同 RED。
 - 命令纠错：一次 Windows `rg` 使用未展开的 `EnvironmentBackend*.sys.mjs` 参数，报告路径语法错误；随后改为两个显式文件路径并检查退出码，返回 `STATIC_FOCUSED_OK`。这不是产品断言失败。
-- 待验证：完整轻量门禁、官方 audit、exact-head 独立审查、实现提交、push、PR 与 merge 均未完成，不得提前表述为交付完成。
+- 完整门禁：实现提交 `3e759165f215ed233a1ae6556e61b916e675b56f`、tree `32b34289230230d61d7c047f51ca17ef249d4f81` 上，`npm ci`、bundle `210.1kb`、固定 13/13 Node 自测文件和 branding 22 全部通过；lockfile SHA-256 保持 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- audit 纠错：首次使用本机默认 `https://registry.npmmirror.com`，该镜像对 audit API 返回 `NOT_IMPLEMENTED`，综合 runner 在产品门禁全部通过后于 audit 步骤退出 1。保留该失败且不重跑产品全链；随后只用官方 `https://registry.npmjs.org` 重跑 audit 与未执行的后缀检查，high/critical 通过，仅剩既有 esbuild dev-only moderate，镜像一致、`git diff --check` 与 clean 检查通过。
+- 待验证：exact-head 独立审查、push、PR、merge、Firefox 发布与真实三 Lane cleanup 均未完成，不得提前表述为生产完成。
 - 边界：没有启动或修改 Firefox、Reverse Lab、lease、assignment、quarantine、runtime JSON、账号、live origin 或其它项目。
