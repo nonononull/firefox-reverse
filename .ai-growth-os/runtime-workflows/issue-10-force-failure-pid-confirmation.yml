@@ -1,0 +1,78 @@
+schema_version: agos.runtime-workflow.v1
+task_id: "issue-10-force-failure-pid-confirmation"
+project_root: "D:\\Android_source\\firefox-reverse-worktrees\\issue-10-force-failure-pid-confirmation"
+task_authority_kind: project-local
+task_authority_status: ready
+task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
+task_authority_source_sha256: "sha256:bf4365a438ecf04c84fbf64db25ed915207d62909b58d002b5115966cdbcb96c"
+task_authority_bootstrap_paths: "docs/plans/sessions/issue-10-force-failure-pid-confirmation.md,docs/plans/sessions/issue-10-force-failure-pid-confirmation.owner-scope.yml"
+scope_hash: "sha256:7e8fd042d084346170ac068b4b9d82e0577fcb416c9d9522547259efdf2939c3"
+owner_scope_ref: "docs/plans/sessions/issue-10-force-failure-pid-confirmation.owner-scope.yml"
+owner_scope_hash: "sha256:7e8fd042d084346170ac068b4b9d82e0577fcb416c9d9522547259efdf2939c3"
+execution_profile: project-native-v1
+session_plan_ref: "docs/plans/sessions/issue-10-force-failure-pid-confirmation.md"
+approved_decision_ref: "session-plan:issue-10-force-failure-pid-confirmation#decision"
+selected_business_path: "github-issue-pr-merge"
+snapshot_ref: "git:2a644f584df70fb91534e3f039e8ef73f579e99d"
+task_scope_boundary: project-local-owner-scope
+task_current_state: evidence-committed-pending-exact-head-review
+mutation_admission_status: project-local-owner-scope-required
+workflow_lookup_mode: dynamic-generated
+dynamic_workflow_gap_summary: "本地 GBrain 无 force command false 后延迟 PID death 专用 workflow；复用项目 EnvironmentBackend TDD、完整轻量门禁和 exact-head 审查合同。"
+execution_nodes:
+  - id: deterministic-red
+    command_ref: "node additions/browser/components/agent-sidebar/dev/selftest-environment.mjs"
+    expected_result: "冻结旧流在 force=false 后不观察下一次 dead，参数级反例稳定失败"
+  - id: minimal-fix
+    command_ref: "仅修改 owner scope 内两份同步后端"
+    expected_result: "force 命令结果不替代 PID 终态，dead 成功，alive 或 unknown 失败关闭"
+  - id: focused-green
+    command_ref: "build.md#Issue-10-focused-gate"
+    expected_result: "force false delayed-dead 正例、alive/unknown 负例与镜像检查通过"
+  - id: complete-light-gate
+    command_ref: "build.md#完整轻量门禁"
+    expected_result: "fresh npm ci、bundle、14 项自测、branding、audit、mirror 与 diff check 通过"
+  - id: exact-head-review
+    command_ref: "build.md#Issue-10-independent-review"
+    expected_result: "固定模型 reviewer 对最终 exact HEAD 返回 P0/P1/P2 全零"
+  - id: github-delivery
+    command_ref: "owner-authorized push, Fixes #10 PR and squash merge"
+    expected_result: "PR 合并且 Firefox-Reverse Issue #10 自动关闭"
+  - id: downstream-return
+    command_ref: "rebuild exact side-load and resume paseo-reverse-lab-mcp Issue #10"
+    expected_result: "新 generation 重新执行三 Lane、容量与 3/3 正常 stop"
+stop_gates:
+  - branch-head-tree-remote-or-issue-drift
+  - owner-scope-or-governance-snapshot-drift
+  - red-does-not-fail-for-force-false-without-delayed-pid-probe
+  - any-source-or-test-path-outside-owner-scope
+  - force-false-with-persistent-alive-or-unknown-reported-as-success
+  - force-true-with-persistent-alive-or-unknown-reported-as-success
+  - any-public-tool-protocol-error-code-config-state-or-timeout-expansion
+  - any-real-firefox-reverse-lab-pid-lease-assignment-quarantine-or-runtime-mutation
+  - complete-gate-failure-without-root-cause
+  - fixed-model-provider-unavailable-before-required-independent-review
+verification_commands:
+  - node additions/browser/components/agent-sidebar/dev/selftest-environment.mjs
+  - git diff --no-index EnvironmentBackend.sys.mjs EnvironmentBackendCurrent.sys.mjs
+  - npm ci --prefix additions/browser/components/agent-sidebar
+  - npm --prefix additions/browser/components/agent-sidebar run build
+  - powershell fixed 14-selftest list from build.md
+  - node scripts/check-branding-assets.mjs
+  - npm audit --prefix additions/browser/components/agent-sidebar --audit-level=high --registry=https://registry.npmjs.org
+  - git diff --check
+code_authoring_rules:
+  - rules/domain/agent-generated-code.md
+  - rules/quality/comments.md
+  - rules/quality/complexity-file-size.md
+  - rules/quality/testing.md
+model_drift_guards:
+  - gpt-5.6-sol
+  - reasoning-max
+  - model-downgrade-forbidden
+execution_evidence:
+  test: "git:48b973de238cc8852ab6c12c54237bcc95368d4a deterministic RED confirmed; focused EnvironmentBackend selftest and exact mirror comparison GREEN"
+  build: "git:48b973de238cc8852ab6c12c54237bcc95368d4a bundle 210.1kb and fixed 14/14 selftest files passed"
+  review: "pending fresh exact-head independent review"
+  verification: "branding 22; official-registry high audit passed with one existing moderate; production/test/lockfile hashes unchanged; mirror and diff check passed"
+  closeout: "pending PR, squash merge, Issue close and downstream exact side-load"

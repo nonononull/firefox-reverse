@@ -89,6 +89,28 @@ if ($LASTEXITCODE -ne 0) { throw 'environment backend mirrors differ' }
 
 冻结旧流 `cb23809f3c5b97f6dcb91f401ab149d3f2b109a3` 的首个 RED 必须精确返回 `actual={ok:false,forced:false}`、`expected={ok:true,forced:true}`，失败原因是 graceful false + alive 没有进入 force，而非语法、mock 或环境错误。focused GREEN 后，生产与测试冻结，再从 fresh `npm ci` 开始只运行一次“完整轻量门禁”；若三份生产/测试路径随后改变，该完整证据失效。
 
+## Issue #10 强制命令失败后的 PID 终态确认聚焦门禁
+
+```powershell
+node .\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs
+if ($LASTEXITCODE -ne 0) { throw 'environment selftest failed' }
+
+git diff --no-index -- `
+  .\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs `
+  .\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs
+if ($LASTEXITCODE -ne 0) { throw 'environment backend mirrors differ' }
+```
+
+参数级 fake 必须固定以下状态机，不启动或终止真实进程：
+
+- Windows graceful 失败、复查 alive、force 命令返回 false、下一次 PID 探测 dead 时成功，且结果保持 `forced:false`；
+- force 命令返回 false 后持续 alive，或后续探测为 unknown 时，完整走完既有有界窗口并继续失败关闭；
+- force 命令返回 true 后仍须明确 dead 才成功，持续 alive 或 unknown 不得伪造终态；
+- graceful 后 dead/unknown/alive、非 Windows no-force 与 `/T`、`/T /F` 参数矩阵继续通过；
+- `close()` 只有收到明确成功才发布 `stopped/pid=null`，两份 EnvironmentBackend 必须逐字一致。
+
+冻结旧流 `c0008f98dfd3a4a9d57c29e156c89e90c7734504` 的 RED 必须精确命中“force 命令返回 false 后没有执行下一次 PID 探测”，不能以语法、mock 或环境失败冒充。focused GREEN 后冻结三份生产/测试字节，再从 fresh `npm ci` 开始只运行一次完整轻量门禁；若三份路径随后变化，完整证据失效。
+
 ## 完整轻量门禁
 
 ```powershell
@@ -137,6 +159,23 @@ git status --short
 ```
 
 Issue #8 只允许 owner scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档变化。不得启动 Firefox、处置真实 PID、修改 Reverse Lab 状态或把本地验证表述为 hosted CI。仓库没有 pull-request CI；production/test hash 在唯一一次完整门禁前后必须一致。
+
+## Issue #10 交付边界
+
+```powershell
+npm ci --prefix .\additions\browser\components\agent-sidebar
+npm --prefix .\additions\browser\components\agent-sidebar run build
+# 随后执行“完整轻量门禁”的固定 14 项自测与 branding 检查
+npm audit --prefix .\additions\browser\components\agent-sidebar --audit-level=high --registry=https://registry.npmjs.org
+git diff --no-index -- `
+  .\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs `
+  .\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs
+git diff --check
+git diff --name-only c0008f98dfd3a4a9d57c29e156c89e90c7734504...HEAD
+git status --short
+```
+
+Issue #10 只允许 owner scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档变化。不新增超时配置，不启动 Firefox，不处置真实 PID，不修改 Reverse Lab runtime、lease、assignment 或 quarantine。仓库没有 pull-request CI；production/test hash 在唯一一次完整门禁前后必须一致。
 
 ## Issue #8 当前验证快照
 

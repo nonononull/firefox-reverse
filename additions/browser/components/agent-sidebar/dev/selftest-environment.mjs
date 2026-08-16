@@ -569,15 +569,14 @@ try {
     ],
   });
   await runTerminateScenario({
-    name: "force command failure remains failed without a later PID probe",
+    name: "force command failure followed by confirmed death succeeds",
     states: ["alive", "alive", "dead"],
     killResults: [false, false],
-    expected: { ok: false, forced: false },
+    expected: { ok: true, forced: false },
     expectedCalls: [
       { pid: 6500, force: false },
       { pid: 6500, force: true },
     ],
-    remainingStates: ["dead"],
   });
   await runTerminateScenario({
     name: "non-Windows graceful failure stays non-forcing",
@@ -594,6 +593,26 @@ try {
     return 0;
   };
   try {
+    await runTerminateScenario({
+      name: "force command failure with a live PID remains failed",
+      states: Array(22).fill("alive"),
+      killResults: [false, false],
+      expected: { ok: false, forced: false },
+      expectedCalls: [
+        { pid: 6500, force: false },
+        { pid: 6500, force: true },
+      ],
+    });
+    await runTerminateScenario({
+      name: "unknown after force command failure remains failed",
+      states: ["alive", "alive", ...Array(20).fill("unknown")],
+      killResults: [false, false],
+      expected: { ok: false, forced: false },
+      expectedCalls: [
+        { pid: 6500, force: false },
+        { pid: 6500, force: true },
+      ],
+    });
     await runTerminateScenario({
       name: "force success without confirmed death remains failed",
       states: Array(22).fill("alive"),

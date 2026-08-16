@@ -1,0 +1,47 @@
+schema_version: agos.owner-scope.v1
+trusted_issuer: owner
+owner_exception_ref: owner-direct:2026-08-17-firefox-reverse-issue-10-force-failure-pid-confirmation
+delivery_authorization_ref: owner-direct:2026-08-17-finish-firefox-reverse-then-paseo-issue-10
+allowed_repositories:
+  - project
+allowed_paths:
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\build.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\err.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\docs\plans\sessions\issue-10-force-failure-pid-confirmation.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\docs\plans\sessions\issue-10-force-failure-pid-confirmation.owner-scope.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\.ai-growth-os\runtime-workflows\issue-10-force-failure-pid-confirmation.yml
+allowed_ops:
+  - source-edit
+  - write-code
+  - write-test
+  - project-doc-write
+  - build
+  - verification
+  - git-add
+  - git-commit
+  - git-push
+  - create-pr
+  - squash-merge
+allowed_path_ops:
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs::source-edit,write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\build.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\err.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\docs\plans\sessions\issue-10-force-failure-pid-confirmation.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\docs\plans\sessions\issue-10-force-failure-pid-confirmation.owner-scope.yml::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-10-force-failure-pid-confirmation\.ai-growth-os\runtime-workflows\issue-10-force-failure-pid-confirmation.yml::project-doc-write,git-add,commit
+forbidden_ops:
+  - create-upstream-pr
+  - publish-binary
+  - replace-installed-or-sideloaded-omni-ja
+  - start-or-modify-browser-runtime
+  - kill-or-modify-existing-process
+  - mutate-reverse-lab-runtime-state
+  - mutate-lease-assignment-quarantine-or-runtime-json
+  - mutate-pingbo-bet365-agos-or-other-project
+  - access-account-or-live-origin
+  - add-public-tool-protocol-error-code-config-format-timeout-or-lifecycle-state

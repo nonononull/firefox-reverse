@@ -1,5 +1,19 @@
 # 排错记录
 
+## 2026-08-17：强制停止命令失败后漏掉迟到的 PID 死亡确认
+
+- 现场：Paseo Reverse Lab Attempt 9 已消除三 Gateway 并发 stop 冲突，三 Lane、独立 profile/artifact/PID/port 与第四容量门均通过；但三个首次 `frx_env_close` 都在约 3.2 秒返回 `Firefox process <pid> did not stop; environment remains closing`。精确 PID 随后自行退出，lane-1 再次 close 在 283ms 内成功。失败 receipt SHA-256 为 `c2769c0f757022ff94cd2ea8daa43b7023804a515aec43e6adfab6b34655bae8`；a9 assignment 与 lease 正确保留 quarantined，未手工修改或删除。
+- 根因：`origin/main=c0008f98dfd3a4a9d57c29e156c89e90c7734504` 的 `_terminatePid()` 在 Windows graceful 失败且 PID alive 后进入 force；若 force 命令返回 false，会立即返回失败，不再使用已有 20 次 PID 确认窗口。taskkill 非零只说明命令结果，不能证明终止中的目标 PID 仍存活。
+- 修复合同：force 命令 true/false 都进入同一个既有有界 PID 观察窗口；明确 dead 才成功。force false 后 delayed dead 返回 `{ ok:true, forced:false }`；持续 alive 或 unknown 仍返回失败，`close()` 保留 `closing`，不新增配置、超时、状态、错误码或公共 API。
+- 运行态边界：本 Firefox 源码批次禁止启动或终止真实 Firefox，禁止修改 Reverse Lab runtime JSON、assignment、lease 或 quarantine；Attempt 9 仍是失败验收，不能由后续补偿升级为 PASS。
+- 当前门禁：确定性 RED、最小生产修复、focused GREEN 与唯一一次完整轻量门禁均已完成；生产/测试/lockfile 字节冻结。只剩纯治理证据提交、fresh exact-head 审查与 PR/merge，治理写回不重复完整产品门禁。
+- RED：只修改 `selftest-environment.mjs` 后运行环境 focused，自测在 0.6 秒内稳定失败：`force command failure followed by confirmed death succeeds` 得到 `actual={ok:false,forced:false}`、`expected={ok:true,forced:false}`。两份生产模块 blob 仍均为 `9a0ebbf039242ebfdb33c8707c73f3630ef18de0`，失败精确证明 force false 后没有消费下一次 dead 探测。
+- 修复：仅删除两份 `_terminatePid()` 中 force false 的立即返回，让 force true/false 都进入已有 20 次 PID 观察循环，并用真实 `forced` 值返回。未修改 `_killPid()`、`_pidState()`、`close()`、taskkill 参数、超时、配置或公共合同。
+- focused GREEN：`selftest-environment.mjs` 与两份模块镜像检查均通过。两份生产 SHA-256 均为 `4b8de0fff328477cd507af745c70782a221018e2e9b01dcbeca1234a499b2982`，测试为 `b1443de612c0bb9fd648b700a636e1f67365ddd715d591e2b429f842a9bde91c`，lockfile 仍为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- 完整门禁：实现提交 `48b973de238cc8852ab6c12c54237bcc95368d4a` 上从 fresh `npm ci` 开始仅执行一次；bundle `210.1kb`、固定 14/14 Node 自测文件、branding 22、官方 registry high audit、两份后端镜像与 `git diff --check` 全部通过。audit 仅剩既有 `esbuild` moderate；两份生产模块、环境自测与 lockfile 的 SHA-256 在门禁前后保持不变。
+- 治理纠错：session plan 首次校验因遗漏顶层 `verification_commands` 被拒绝，补齐后 `SESSION_PLAN_VERIFY_OK`；control-doc boundary 为 ready。AGOS default-entry ReportOnly 确认 project-local task authority 为 ready，但本仓没有中央 issue-state-v1 注册，legacy route 仍返回 blocked；保留该失败，不把它伪报为通过。GitHub Issue #10、project-local owner scope 与牢大直接授权继续作为正式执行 authority。
+- 治理快照：bootstrap 提交前 runtime verifier 按预期拒绝基线 `c0008f98`，精确指出新 session plan 尚未进入 `snapshot_ref`。实现快照由 session plan 绑定 `48b973de238cc8852ab6c12c54237bcc95368d4a`；最终先提交纯证据写回，再由 runtime-only 提交把 `snapshot_ref` 绑定该证据提交，不能跳过或伪造 runtime READY。
+
 ## 2026-08-17：Windows env_close 在温和 taskkill 失败后未升级强制关闭
 
 - 现场：`origin/main=cb23809f3c5b97f6dcb91f401ab149d3f2b109a3`。Windows `_terminatePid()` 调用 `/T` 返回非零后只复查一次 PID；PID 仍为 `alive` 时直接返回失败，已有 `/T /F` 分支不可达。Attempt 7b 的同类现场为 exit `128` 且完整进程树仍存活。
