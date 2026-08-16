@@ -439,6 +439,36 @@ try {
   assert.equal(persistedCloseState.runtime.status, "closing");
   assert.equal(persistedCloseState.runtime.pid, 6300);
 
+  const mismatchedCloseEnv = (await closeBackend.create({ name: "Mismatched close failure" })).environment;
+  await setRunningRuntime(mismatchedCloseEnv, 6600);
+  const mismatchedProc = {
+    pid: 6601,
+    exitCode: null,
+    kill() {
+      throw new Error("local process kill failed");
+    },
+  };
+  closeBackend._procs.set(mismatchedCloseEnv.id, mismatchedProc);
+  closeBackend._procDrains.set(mismatchedCloseEnv.id, Promise.resolve());
+  closeBackend._procOutputTails.set(mismatchedCloseEnv.id, "owned output");
+  closeBackend._pidState = async pid => (pid === 6600 ? "dead" : "alive");
+  closeBackend._terminatePid = async pid => {
+    assert.equal(pid, 6601);
+    return { ok: false, forced: false };
+  };
+  await assert.rejects(
+    () => closeBackend.close({ id: mismatchedCloseEnv.id }),
+    /did not stop/,
+    "mismatched runtime and local process PIDs must fail closed"
+  );
+  const mismatchedCloseState = await closeBackend._loadEnv(mismatchedCloseEnv.id);
+  assert.equal(mismatchedCloseState.runtime.status, "closing");
+  assert.equal(mismatchedCloseState.runtime.pid, 6601);
+  assert.equal(closeBackend._procs.get(mismatchedCloseEnv.id), mismatchedProc);
+  assert.equal(closeBackend._procDrains.has(mismatchedCloseEnv.id), true);
+  assert.equal(closeBackend._procOutputTails.get(mismatchedCloseEnv.id), "owned output");
+  delete closeBackend._pidState;
+
   const confirmedCloseEnv = (await closeBackend.create({ name: "Confirmed close" })).environment;
   await setRunningRuntime(confirmedCloseEnv, 6400);
   const confirmedProc = {
@@ -485,6 +515,95 @@ try {
   terminateState = "unknown";
   assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: false, forced: false });
   assert.equal(terminateKillCalls, 2);
+
+  let releaseStartingCall;
+  let markStartingCallEntered;
+  const startingCallEntered = new Promise(resolve => {
+    markStartingCallEntered = resolve;
+  });
+  const blockedStartingCall = new Promise(resolve => {
+    releaseStartingCall = resolve;
+  });
+  const startingBackend = new EnvironmentBackend({
+    root: path.join(root, "starting-close"),
+    firefoxBin: "C:\\Program Files\\Firefox Reverse\\firefox.exe",
+    subprocess: {
+      async call() {
+        markStartingCallEntered();
+        return blockedStartingCall;
+      },
+    },
+    portProbe: async () => true,
+    portReadyProbe: async () => false,
+    startupTimeoutMs: 10,
+    startupPollMs: 1,
+  });
+  const startingCloseEnv = (await startingBackend.create({ name: "Starting close" })).environment;
+  const startingOpen = startingBackend.open({ id: startingCloseEnv.id });
+  await startingCallEntered;
+  const startingCloseError = await startingBackend.close({ id: startingCloseEnv.id }).then(
+    () => null,
+    error => error
+  );
+  const startingCloseState = await startingBackend._loadEnv(startingCloseEnv.id);
+  releaseStartingCall({
+    pid: 6700,
+    exitCode: 1,
+    stdout: { async readString() { return ""; } },
+    kill() {},
+  });
+  await assert.rejects(() => startingOpen, /Firefox exited before Marionette became ready/);
+  assert.match(
+    startingCloseError?.message || "",
+    /did not stop/,
+    "starting runtime without a PID or process handle must fail closed"
+  );
+  assert.equal(startingCloseState.runtime.status, "closing");
+  assert.equal(startingCloseState.runtime.pid, null);
+
+  let releaseDrainRead;
+  let markDrainReadEntered;
+  let drainReadCount = 0;
+  const drainReadEntered = new Promise(resolve => {
+    markDrainReadEntered = resolve;
+  });
+  const blockedDrainRead = new Promise(resolve => {
+    releaseDrainRead = resolve;
+  });
+  const drainBackend = new EnvironmentBackend({ root: path.join(root, "late-drain") });
+  const drainEnv = (await drainBackend.create({ name: "Late drain" })).environment;
+  const storedDrainEnv = await drainBackend._loadEnv(drainEnv.id);
+  storedDrainEnv.runtime = { ...storedDrainEnv.runtime, status: "running", pid: 6800 };
+  await drainBackend._saveRuntime(storedDrainEnv);
+  const drainProc = {
+    pid: 6800,
+    exitCode: 0,
+    kill() {},
+    stdout: {
+      async readString() {
+        drainReadCount += 1;
+        if (drainReadCount === 1) {
+          markDrainReadEntered();
+          return blockedDrainRead;
+        }
+        return "";
+      },
+    },
+  };
+  drainBackend._procs.set(drainEnv.id, drainProc);
+  drainBackend._startProcessOutputDrain(drainEnv.id, drainProc);
+  const drainTask = drainBackend._procDrains.get(drainEnv.id);
+  await drainReadEntered;
+  await drainBackend.close({ id: drainEnv.id });
+  releaseDrainRead("late output");
+  await drainTask;
+  assert.equal(drainBackend._procs.has(drainEnv.id), false);
+  assert.equal(drainBackend._procDrains.has(drainEnv.id), false);
+  assert.equal(
+    drainBackend._procOutputTails.has(drainEnv.id),
+    false,
+    "late output drain must not restore a cleared output tail"
+  );
 
   const launchRoot = path.join(root, "windows-launch");
   const launchCalls = [];

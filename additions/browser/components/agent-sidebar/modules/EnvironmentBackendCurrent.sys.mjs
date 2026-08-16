@@ -2136,19 +2136,23 @@ export class EnvironmentBackend {
       return;
     }
     this._procOutputTails.delete(envId);
-    const task = (async () => {
+    const task = Promise.resolve().then(async () => {
       let tail = "";
       try {
         for (let chunk; (chunk = await proc.stdout.readString()); ) {
           tail = (tail + chunk).slice(-PROCESS_OUTPUT_TAIL_CHARS);
-          this._procOutputTails.set(envId, tail);
+          if (this._procDrains.get(envId) === task) {
+            this._procOutputTails.set(envId, tail);
+          }
         }
       } catch (e) {
         tail = (tail + `\n[output drain error] ${(e && e.message) || String(e)}`).slice(-PROCESS_OUTPUT_TAIL_CHARS);
-        this._procOutputTails.set(envId, tail);
+        if (this._procDrains.get(envId) === task) {
+          this._procOutputTails.set(envId, tail);
+        }
       }
       return tail;
-    })();
+    });
     this._procDrains.set(envId, task);
     void task.finally(() => {
       if (this._procDrains.get(envId) === task) {
@@ -2384,8 +2388,9 @@ export class EnvironmentBackend {
       throw new Error("id required");
     }
     const env = await this._loadEnv(String(id));
+    const wasActive = env.runtime?.status === "running" || env.runtime?.status === "starting" || env.runtime?.status === "closing";
     const proc = this._procs.get(env.id);
-    const pid = env.runtime?.pid || proc?.pid || null;
+    const pid = proc?.pid || env.runtime?.pid || null;
     env.runtime = {
       ...(env.runtime || {}),
       status: "closing",
@@ -2394,7 +2399,7 @@ export class EnvironmentBackend {
     };
     await this._saveRuntime(env);
     let forced = false;
-    let stopped = !proc && !pid;
+    let stopped = !wasActive && !proc && !pid;
     if (proc && proc.kill) {
       try {
         proc.kill();
