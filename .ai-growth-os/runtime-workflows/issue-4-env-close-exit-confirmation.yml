@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-4-env-close-exit-confirmation.md"
 approved_decision_ref: "session-plan:issue-4-env-close-exit-confirmation#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:ea5e2ad0aaf6635728fc531759a5b572aa581c70"
+snapshot_ref: "git:a10256f6e639add6057807d11015db3887d04dff"
 task_scope_boundary: project-local-owner-scope
-task_current_state: local-verification-passed-final-review-pending
+task_current_state: delivery-ready-pending-squash-merge
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 vault 无 Firefox-Reverse env_close 专用 workflow card；复用项目 TDD、完整轻量门禁与 exact-head 审查合同。"
@@ -48,6 +48,6 @@ stop_gates:
 execution_evidence:
   test: "git:3f8e2eb PID_PRIORITY, ACTIVE_WITHOUT_PID and LATE_DRAIN_FENCE mutations RED; focused EnvironmentBackend selftest GREEN"
   build: "git:3f8e2eb07a385ed132a5722a1395036ce59040a7 bundle 210.1kb and 13/13 selftest files passed"
-  review: "git:ebfa1717 request-changes P1=2 P2=1 corrected; final exact-head review pending"
+  review: "git:9398c9238395c4e1d9fbb3cb389ef58d39a24cdc APPROVE P0=0 P1=0 P2=0 focused PASS; final doc-only exact-head relock is an external delivery gate"
   verification: "branding 22; official-registry high audit passed with one existing moderate; lockfile unchanged; mirror/diff/clean passed"
-  closeout: owner-authorized-delivery-pending-final-exact-head-review
+  closeout: "https://github.com/nonononull/firefox-reverse/pull/5 draft; pending doc-only exact-head relock and squash merge"
