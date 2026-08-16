@@ -110,6 +110,7 @@ Issue #6 只允许 owner scope 中的七份生产模块、一个隔离自测、U
 - 官方 registry high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #6。
 - `package-lock.json` SHA-256 前后均为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`；`git diff --check` 通过。
 - fresh 独立 exact-working-tree reviewer 返回 `APPROVE`，P0/P1/P2 均为 0，并独立重跑五项 focused 与 `git diff --check` 全部通过；这不是尚未形成的 exact-head delivery review。
+- 实现快照为 `5972f0df56663cb5a5d8deed39627425d7106b7b`，tree `b935f81cc181a6b641d8ac08b302bc8c6fa4ec07`；第二证据提交只绑定该 `snapshot_ref` 并记录交付状态，不改变生产/测试哈希。
 - 上述是 Windows / Node 本地证据，不是 hosted CI；生产/测试哈希在完整门禁前后保持一致。牢大已授权形成实现快照、绑定 `snapshot_ref`、完成 exact-head 审查并交付 PR/merge；文档写回不重复完整产品门禁。
 
 ## 交付边界

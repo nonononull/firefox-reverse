@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-6-window-workspace-isolation.md"
 approved_decision_ref: "session-plan:issue-6-window-workspace-isolation#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:20a942590ad833116042c28c09723d18b10020a2"
+snapshot_ref: "git:5972f0df56663cb5a5d8deed39627425d7106b7b"
 task_scope_boundary: project-local-owner-scope
-task_current_state: owner-authorized-git-delivery-pending-implementation-snapshot
+task_current_state: implementation-snapshot-bound-pending-exact-head-review
 mutation_admission_status: ready
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 vault 无 Firefox-Reverse 窗口工作目录隔离专用卡；使用项目 TDD、Windows 轻量门禁与 exact-head 审查合同。"
@@ -67,4 +67,4 @@ execution_evidence:
   build: "frozen working tree sidebar bundle 210.1kb"
   review: "fresh exact-working-tree reviewer APPROVE P0/P1/P2=0/0/0; independent five focused gates and diff check PASS; exact-head delivery review remains gated on commit"
   verification: "Windows Node v22.23.1 npm 10.9.8 fresh npm ci, bundle 210.1kb, fixed 14/14 selftests, branding 22, official high audit and diff check passed once; lockfile and frozen source/test hashes unchanged"
-  closeout: "owner authorized commit, snapshot binding, exact-head review, push, PR and squash merge; in progress"
+  closeout: "implementation snapshot 5972f0df56663cb5a5d8deed39627425d7106b7b bound; pending exact-head review, push, PR and squash merge"

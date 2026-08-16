@@ -12,6 +12,7 @@
 - 独立审查阻断与纠正：reviewer 返回 `REQUEST_CHANGES (P1=1, P2=1)`。牢大批准扩展 owner scope 后，真实执行生产 `AgentSession.callTool()` 的新反例在旧实现得到 `27 passed, 1 failed`，唯一失败是省略 `workspaceRoot` 被压成 own null；同一测试还会杀死把 `runCtx` 移到首个 `await ensureThread()` 后的内存 mutation。三行生产修复后同一矩阵 `28/28`。
 - 最终完整门禁：源码/测试冻结后，Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始仅执行一次；安装 7 个包、bundle `210.1kb`、固定 14/14 Node 自测文件与 branding 22 全部通过。官方 high/critical audit 通过并仅剩既有 esbuild moderate，lockfile SHA-256 保持 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`，`git diff --check` 通过；完整门禁前后九个生产/测试/聚合路径哈希逐项一致。
 - fresh 独立审查：exact-working-tree reviewer 复锁 15 个 changed paths 与 owner scope，返回 `APPROVE (P0=0, P1=0, P2=0)`；独立 focused 的隔离 `28/28`、workspace `25/25`、toolrouter `37/37`、routing、reservation 与 `git diff --check` 全部通过。该结论不冒充尚未提交的 exact-head review。
+- Git 快照：实现与任务控制面提交为 `5972f0df56663cb5a5d8deed39627425d7106b7b`，tree `b935f81cc181a6b641d8ac08b302bc8c6fa4ec07`；后续仅以证据提交把 runtime `snapshot_ref` 绑定该提交，session plan 与 owner-scope 不再变化。
 - 边界：未启动 Firefox，未访问账号/live，未触碰旧 Issue #1 脏工作树、已关闭 PR #2、Reverse Lab 或其它项目。生产/测试不再修改；Git checkpoint 的源码写入许可为 ready，牢大已授权用实现快照解除治理 snapshot 阻断，并继续 exact-head、push、PR 与 squash merge；分支不删除。
 
 ## 2026-08-14：多窗口修复被外围并发审查带偏
