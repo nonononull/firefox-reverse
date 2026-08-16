@@ -523,7 +523,7 @@ export class JsvmpBackend {
 
   /** 把 trace 文件镜像到 <工作目录>/jsvmp/，让 trace 缓存落在用户打开的目录下。
    *  size+mtime 相同则跳过，避免重复拷贝大文件。返回目标路径或 null。 */
-  async _relayToWorkspace(f) {
+  async _relayToWorkspace(f, ctx) {
     try {
       const root = this._getWorkspaceRoot && this._getWorkspaceRoot(ctx);
       if (!root || !f) {
@@ -733,7 +733,7 @@ export class JsvmpBackend {
     }
     out.reverse(); // 收集时是尾→头，反转回时间顺序（旧→新）
     // 把 trace 镜像到工作目录（若已设），让缓存落在用户打开的目录下。
-    const workspaceCopy = await this._relayToWorkspace(f);
+    const workspaceCopy = await this._relayToWorkspace(f, ctx);
     return {
       ok: true,
       traceFile: f,
@@ -889,7 +889,7 @@ export class JsvmpBackend {
       let workspaceCopy = null;
       try {
         const f = await this._findTrace(ctx);
-        workspaceCopy = await this._relayToWorkspace(f);
+        workspaceCopy = await this._relayToWorkspace(f, ctx);
       } catch {
         /* ignore */
       }
@@ -931,7 +931,7 @@ export class JsvmpBackend {
           : "已发出清空请求；内容进程将在下次执行 JS 时清空。可直接触发目标操作后 jsvmp_query（query 默认读最新尾部，旧噪声不影响）。",
       };
     }
-    return this.status();
+    return this.status({}, ctx);
   }
 
   /**

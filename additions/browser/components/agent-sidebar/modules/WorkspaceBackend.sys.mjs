@@ -146,13 +146,14 @@ export class WorkspaceBackend {
     this._root = p || null;
     return this._root;
   }
-  /** 返回当前生效的工作目录根：ctx.workspaceRoot（会话级，优先）→ this._root（全局后备）。 */
+  /** 返回当前生效的工作目录根：显式会话值（包括 null）优先；完全省略 ctx 时才用全局后备。 */
   getRoot(ctx) {
     return this._resolveRoot(ctx);
   }
-  /** ctx.workspaceRoot 优先于全局 this._root，实现多窗口/多会话隔离。 */
+  /** 显式 null 表示本会话未绑定目录，不能借用其它窗口最后写入的全局根。 */
   _resolveRoot(ctx) {
-    const r = (ctx && ctx.workspaceRoot) || this._root;
+    const hasSessionRoot = !!ctx && Object.prototype.hasOwnProperty.call(ctx, "workspaceRoot");
+    const r = hasSessionRoot ? ctx.workspaceRoot : this._root;
     return r ? this._normalizePath(r) : r;
   }
 

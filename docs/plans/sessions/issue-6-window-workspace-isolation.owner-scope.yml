@@ -1,0 +1,63 @@
+schema_version: agos.owner-scope.v1
+trusted_issuer: owner
+owner_exception_ref: owner-direct:2026-08-16-firefox-reverse-issue-6-window-workspace-isolation
+delivery_authorization_ref: owner-direct:2026-08-16-issue-6-one-shot-git-delivery
+allowed_repositories:
+  - project
+allowed_paths:
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\AGENTS.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\build.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\err.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\content\AgentPanel.jsx
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\AgentSession.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\WorkspaceBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\CodeBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\Backends.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\ScriptsBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\JsvmpBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\dev\selftest-workspace-isolation.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\scripts\selftest-agent-tools.sh
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\docs\plans\sessions\issue-6-window-workspace-isolation.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\docs\plans\sessions\issue-6-window-workspace-isolation.owner-scope.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\.ai-growth-os\runtime-workflows\issue-6-window-workspace-isolation.yml
+allowed_ops:
+  - source-edit
+  - write-code
+  - write-test
+  - project-doc-write
+  - build
+  - verification
+  - git-add
+  - commit
+  - push
+  - create-pr
+  - pr
+  - merge
+allowed_path_ops:
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\AGENTS.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\build.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\err.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\content\AgentPanel.jsx::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\AgentSession.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\WorkspaceBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\CodeBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\Backends.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\ScriptsBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\modules\JsvmpBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\additions\browser\components\agent-sidebar\dev\selftest-workspace-isolation.mjs::write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\scripts\selftest-agent-tools.sh::write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\docs\plans\sessions\issue-6-window-workspace-isolation.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\docs\plans\sessions\issue-6-window-workspace-isolation.owner-scope.yml::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-6-window-workspace-isolation\.ai-growth-os\runtime-workflows\issue-6-window-workspace-isolation.yml::project-doc-write,git-add,commit
+forbidden_ops:
+  - delete-branch
+  - replay-or-merge-closed-pr-2
+  - create-upstream-pr
+  - publish-binary
+  - replace-installed-omni-ja
+  - start-or-modify-browser-runtime
+  - kill-or-modify-existing-process
+  - mutate-reverse-lab
+  - mutate-pingbo-bet365-agos-or-other-project
+  - access-account-or-live-origin
+  - add-public-tool-protocol-storage-format-or-reservation-semantics

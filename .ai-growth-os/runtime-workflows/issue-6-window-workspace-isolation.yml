@@ -1,0 +1,70 @@
+schema_version: agos.runtime-workflow.v1
+task_id: "issue-6-window-workspace-isolation"
+project_root: "D:\\Android_source\\firefox-reverse-worktrees\\issue-6-window-workspace-isolation"
+task_authority_kind: project-local
+task_authority_status: ready
+task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
+task_authority_source_sha256: "sha256:ea96a9b968e5a15b52f92defa38c1499f8f4be340f06be42e4cba1ed2c2a3a8f"
+task_authority_bootstrap_paths: "docs/plans/sessions/issue-6-window-workspace-isolation.md,docs/plans/sessions/issue-6-window-workspace-isolation.owner-scope.yml"
+scope_hash: "sha256:a7886ea00b9b192280cf64c6d5f7bd5ab3b1ac179a5944b5616787be2621c2a4"
+owner_scope_ref: "docs/plans/sessions/issue-6-window-workspace-isolation.owner-scope.yml"
+owner_scope_hash: "sha256:a7886ea00b9b192280cf64c6d5f7bd5ab3b1ac179a5944b5616787be2621c2a4"
+execution_profile: project-native-v1
+session_plan_ref: "docs/plans/sessions/issue-6-window-workspace-isolation.md"
+approved_decision_ref: "session-plan:issue-6-window-workspace-isolation#decision"
+selected_business_path: "github-issue-pr-merge"
+snapshot_ref: "git:20a942590ad833116042c28c09723d18b10020a2"
+task_scope_boundary: project-local-owner-scope
+task_current_state: owner-authorized-git-delivery-pending-implementation-snapshot
+mutation_admission_status: ready
+workflow_lookup_mode: dynamic-generated
+dynamic_workflow_gap_summary: "本地 vault 无 Firefox-Reverse 窗口工作目录隔离专用卡；使用项目 TDD、Windows 轻量门禁与 exact-head 审查合同。"
+skill_tree_nodes:
+  - "karpathy-guidelines:surgical-tdd"
+subagent_roles:
+  - "workspace-context-matrix-reviewer:completed"
+  - "deterministic-interleaving-reviewer:completed"
+  - "window-ownership-reviewer:completed"
+  - "final-exact-working-tree-reviewer:completed-approve"
+quality_rule_refs:
+  - "rules/domain/agent-generated-code.md"
+  - "rules/quality/comments.md"
+  - "rules/quality/complexity-file-size.md"
+  - "rules/quality/testing.md"
+model_drift_guard: "gpt-5.6-sol/max; on 429 or capacity failure stop without model switch"
+err_watchlist:
+  - "Windows complete gate must use build.md PowerShell list, not Bash/WSL"
+  - "official registry is required for npm audit"
+  - "preserve the first RED and any complete-gate failure; retry is not a reset"
+execution_nodes:
+  - id: deterministic-red
+    command_ref: "node additions/browser/components/agent-sidebar/dev/selftest-workspace-isolation.mjs"
+    expected_result: "旧实现稳定命中 notes/find/scripts/JSVMP/explicit-null 上下文漂移"
+  - id: minimal-fix
+    command_ref: "仅修改 owner scope 内七份生产模块"
+    expected_result: "同一 ctx 全链透传且显式未绑定失败关闭"
+  - id: focused-green
+    command_ref: "build.md#Issue-6-focused-gate"
+    expected_result: "隔离矩阵与既有 workspace/toolrouter 对照全部通过"
+  - id: complete-light-gate
+    command_ref: "build.md#完整轻量门禁"
+    expected_result: "npm ci、bundle、固定自测、branding、official audit 与 diff check 通过一次"
+  - id: exact-head-review
+    command_ref: "build.md#Issue-6-independent-review"
+    expected_result: "固定模型 reviewer 对最后 mutation 返回零 finding"
+stop_gates:
+  - branch-head-tree-remote-or-issue-drift
+  - owner-scope-or-governance-snapshot-drift
+  - red-does-not-kill-the-observed-context-loss
+  - any-source-or-test-path-outside-owner-scope
+  - any-public-tool-protocol-storage-format-reservation-or-corpus-design-expansion
+  - any-real-firefox-account-live-or-other-project-mutation
+  - complete-gate-failure-without-root-cause
+  - fixed-model-provider-unavailable-before-required-independent-review
+  - commit-push-pr-or-merge-without-explicit-owner-authorization
+execution_evidence:
+  test: "baseline 7 passed/18 failed; raw callTool old flow 27 passed/1 failed; runCtx-order mutation killed; fixed isolation 28/28, workspace 25/25, toolrouter 37/37, routing and reservation PASS"
+  build: "frozen working tree sidebar bundle 210.1kb"
+  review: "fresh exact-working-tree reviewer APPROVE P0/P1/P2=0/0/0; independent five focused gates and diff check PASS; exact-head delivery review remains gated on commit"
+  verification: "Windows Node v22.23.1 npm 10.9.8 fresh npm ci, bundle 210.1kb, fixed 14/14 selftests, branding 22, official high audit and diff check passed once; lockfile and frozen source/test hashes unchanged"
+  closeout: "owner authorized commit, snapshot binding, exact-head review, push, PR and squash merge; in progress"

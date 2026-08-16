@@ -29,7 +29,7 @@ export class CodeBackend {
       if (ctx && ctx.workspaceRoot) {
         return ctx.workspaceRoot;
       }
-      return (this._workspace && this._workspace.getRoot && this._workspace.getRoot()) || null;
+      return (this._workspace && this._workspace.getRoot && this._workspace.getRoot(ctx)) || null;
     } catch {
       return null;
     }

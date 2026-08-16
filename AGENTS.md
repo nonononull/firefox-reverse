@@ -1,10 +1,18 @@
 # 项目执行边界
 
 - 全程使用中文；构建与验证以 `build.md` 为准，排错先查 `err.md`。
-- Issue #1 只修复 Agent 侧栏的多窗口 thread 路由，不发布或安装 Firefox。
-- 生产代码只允许修改 `AgentPanel.jsx`；不得修改 `AgentSession.sys.mjs`、`ConversationStore.sys.mjs`、工具路由、存储格式或公共 API。
-- 固定验收：外部运行 thread 不自动/点击接管；提示条新建 thread；同 thread 仍单窗口独占；不同 thread 仍可并行。
-- 失去面板内存状态或重挂载后，对运行中的 thread 失败关闭并显示外部任务提示，不新增 run epoch、generation、claim 或恢复 journal。
-- 测试只覆盖上述合同并复用现有 reservation 自测；不得为外围竞态增加生产机制。
-- 独立审查只检查本次 changed surface。超出固定合同的观察项登记为后续 Issue，不得扩张当前 PR。
+
+## 当前任务：Issue #6 多窗口工作目录隔离
+
+- 只修复会话已捕获的 `{ workspaceRoot, win }` 在异步与组合后端中丢失的问题，不发布或安装 Firefox。
+- 生产代码只允许修改 `AgentPanel.jsx`、`AgentSession.sys.mjs`、`WorkspaceBackend.sys.mjs`、`CodeBackend.sys.mjs`、`Backends.sys.mjs`、`ScriptsBackend.sys.mjs` 与 `JsvmpBackend.sys.mjs`。
+- 显式携带 `workspaceRoot` 的会话必须始终使用该值；显式值为 `null` 时文件操作失败关闭。完全未提供 ctx 的旧直驱调用保留全局后备兼容行为。
+- 固定验收覆盖 notes 自动注入、`find_param_entry`、scripts 列举/短名保存/批量抓取、JSVMP 自动镜像，以及直接 fs/run 对照组；新自测必须接入 Windows 与 Unix 聚合列表。
+- `AgentSession.callTool()` 只允许修正省略 `workspaceRoot` 与显式 `null` 的 ctx 所有权；不修改 `ConversationStore.sys.mjs`、ToolRouter 公共合同、thread reservation、存储格式或公共 API；共享 profile 脚本语料库保持现状。
+- 先以 A 阻塞、B 切换 fallback、再恢复 A 的确定性交错证明旧实现 RED；修复后跑 focused gate 和一次完整 Windows 轻量门禁。
+- 不恢复、重放或合并已关闭 PR #2 的长分支；Issue #1 的路由合同继续由现有回归保护。
 - 不修改 Reverse Lab、Pingbo、Bet365、账号、live origin、已安装浏览器或公开上游。
+
+## 历史任务
+
+- Issue #1 与 Issue #4 已关闭；其任务控制文档只作为历史证据，不能覆盖 Issue #6。

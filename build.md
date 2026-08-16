@@ -16,7 +16,35 @@ node .\additions\browser\components\agent-sidebar\dev\selftest-multi-window-rout
 node .\additions\browser\components\agent-sidebar\dev\selftest-thread-reservation.mjs
 ```
 
-路由合同只验证外部任务不接管、提示条新建 thread、初始化/历史/发送失败关闭。现有 reservation 自测验证 owner、TTL 和同 thread 独占；`AgentSession.sys.mjs` 必须保持零差异。
+路由合同只验证外部任务不接管、提示条新建 thread、初始化/历史/发送失败关闭。现有 reservation 自测验证 owner、TTL 和同 thread 独占；Issue #6 对 `AgentSession.sys.mjs` 只允许修改 raw `callTool()` 的 ctx 构造。
+
+## Issue #6 多窗口工作目录隔离聚焦门禁
+
+```powershell
+$tests = @(
+  'selftest-workspace-isolation.mjs',
+  'selftest-workspace.mjs',
+  'selftest-toolrouter.mjs',
+  'selftest-multi-window-routing.mjs',
+  'selftest-thread-reservation.mjs'
+)
+foreach ($test in $tests) {
+  node (Join-Path '.\additions\browser\components\agent-sidebar\dev' $test)
+  if ($LASTEXITCODE -ne 0) { throw "focused selftest failed: $test" }
+}
+```
+
+`selftest-workspace-isolation.mjs` 使用生产后端与内存 IO 固定以下交错：窗口 A 捕获 `{ workspaceRoot, win }`，窗口 B 改写共享 fallback，随后恢复 A。它必须同时证明：
+
+- notes 自动注入与 `session.run` 复用同一冻结 ctx；
+- 显式 `workspaceRoot:null` 失败关闭，完全省略 ctx 以及 raw `AgentSession.callTool()` 省略 `workspaceRoot` 的旧 fallback 保持兼容；
+- `runCtx` 必须位于首个 `await ensureThread()` 之前，顺序断言必须杀死延后冻结的内存 mutation；
+- `find_param_entry` 正确等待 network list，network/code 子调用均收到 A ctx；
+- scripts 列表、短名保存和批量抓取只从 A 页面取源，工作目录写入 A；
+- JSVMP query、trace stop 与默认 status 透传 A ctx，trace 镜像落 A；
+- 直接文件路径与 `run_node` cwd 仍固定为 A，Issue #1 路由与 reservation 合同不回归。
+
+治理基线 `20a942590ad833116042c28c09723d18b10020a2` 的首个 RED 为 `7 passed, 18 failed`；失败原因必须是上述 ctx 丢失、异步 network 未等待和未声明 JSVMP ctx，不接受语法、mock 或环境失败冒充。Reviewer 扩展反例在修复前得到 `27 passed, 1 failed`，唯一失败必须是 raw `callTool()` 把省略字段制造为 own `workspaceRoot:null`；runCtx 顺序 mutation 必须同轮被杀死。
 
 ## Issue #4 env_close 退出确认聚焦门禁
 
@@ -48,7 +76,8 @@ $tests = @(
   'selftest-conversations.mjs', 'selftest-stream.mjs', 'selftest-retry.mjs',
   'selftest-anthropic.mjs', 'selftest-toolrouter.mjs',
   'selftest-thread-reservation.mjs', 'selftest-multi-window-routing.mjs',
-  'selftest-workspace.mjs', 'selftest-environment.mjs', 'selftest-e2e.mjs'
+  'selftest-workspace.mjs', 'selftest-workspace-isolation.mjs',
+  'selftest-environment.mjs', 'selftest-e2e.mjs'
 )
 foreach ($test in $tests) {
   node (Join-Path '.\additions\browser\components\agent-sidebar\dev' $test)
@@ -59,6 +88,29 @@ if ($LASTEXITCODE -ne 0) { throw 'branding check failed' }
 ```
 
 Windows 不使用 Bash 聚合入口，避免 CRLF、NVM4W shim 和 WSL 平台依赖干扰。
+
+## Issue #6 交付边界
+
+```powershell
+npm audit --prefix .\additions\browser\components\agent-sidebar --audit-level=high --registry=https://registry.npmjs.org
+git diff --check
+git diff --name-only 20a942590ad833116042c28c09723d18b10020a2...HEAD
+git diff --exit-code 20a942590ad833116042c28c09723d18b10020a2...HEAD -- `
+  .\additions\browser\components\agent-sidebar\modules\ConversationStore.sys.mjs
+git status --short
+```
+
+Issue #6 只允许 owner scope 中的七份生产模块、一个隔离自测、Unix 聚合测试入口、`AGENTS.md`、`build.md`、`err.md` 与三份任务控制文档变化。完整门禁从 fresh `npm ci` 开始执行；生产代码、测试或聚合接线若随后改变，旧证据保留但最终树必须重新验证。仓库没有 pull-request CI，不得把本地结果表述为 hosted CI。
+
+## Issue #6 当前验证快照
+
+- 旧流 RED：治理基线测试得到 `7 passed, 18 failed`，18 项分别命中显式 null、Panel notes ctx、find async/ctx、scripts 页面来源与 JSVMP relay/status；reviewer 扩展反例在旧 `callTool()` 上得到 `27 passed, 1 failed`，唯一失败精确命中省略字段被压成 null。
+- focused GREEN：隔离矩阵 `28/28`、workspace `25/25`、toolrouter `37/37`、multi-window routing 与 thread reservation 全部通过；runCtx 延后到首个 await 后的内存 mutation 被杀死。
+- 最终完整轻量门禁：Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始仅执行一次，安装 7 个包、bundle `210.1kb`、固定 14/14 Node 自测文件与 branding 22 全部通过。
+- 官方 registry high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #6。
+- `package-lock.json` SHA-256 前后均为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`；`git diff --check` 通过。
+- fresh 独立 exact-working-tree reviewer 返回 `APPROVE`，P0/P1/P2 均为 0，并独立重跑五项 focused 与 `git diff --check` 全部通过；这不是尚未形成的 exact-head delivery review。
+- 上述是 Windows / Node 本地证据，不是 hosted CI；生产/测试哈希在完整门禁前后保持一致。牢大已授权形成实现快照、绑定 `snapshot_ref`、完成 exact-head 审查并交付 PR/merge；文档写回不重复完整产品门禁。
 
 ## 交付边界
 
