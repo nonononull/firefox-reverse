@@ -389,6 +389,103 @@ try {
   assert.ok(commandSearches.includes("taskkill.exe"));
   assert.equal(commandCalls.at(-1).command, "C:\\Windows\\System32\\taskkill.exe");
 
+  const closeBackend = new EnvironmentBackend({ root: path.join(root, "close-confirmation") });
+  const setRunningRuntime = async (environment, pid) => {
+    const stored = await closeBackend._loadEnv(environment.id);
+    stored.runtime = {
+      ...stored.runtime,
+      status: "running",
+      pid,
+      marionetteReady: true,
+      marionetteStatus: "ready",
+    };
+    await closeBackend._saveRuntime(stored);
+  };
+
+  const localCloseEnv = (await closeBackend.create({ name: "Local close failure" })).environment;
+  await setRunningRuntime(localCloseEnv, 6200);
+  const localProc = {
+    pid: 6200,
+    exitCode: null,
+    killCalls: 0,
+    kill() {
+      this.killCalls += 1;
+    },
+  };
+  closeBackend._procs.set(localCloseEnv.id, localProc);
+  closeBackend._procDrains.set(localCloseEnv.id, Promise.resolve());
+  closeBackend._procOutputTails.set(localCloseEnv.id, "still running");
+  closeBackend._terminatePid = async pid => {
+    assert.equal(pid, 6200);
+    return { ok: false, forced: true };
+  };
+  await assert.rejects(() => closeBackend.close({ id: localCloseEnv.id }), /did not stop/);
+  const localCloseState = await closeBackend._loadEnv(localCloseEnv.id);
+  assert.equal(localProc.killCalls, 1);
+  assert.equal(localCloseState.runtime.status, "closing");
+  assert.equal(localCloseState.runtime.pid, 6200);
+  assert.equal(closeBackend._procs.get(localCloseEnv.id), localProc);
+  assert.equal(closeBackend._procDrains.has(localCloseEnv.id), true);
+  assert.equal(closeBackend._procOutputTails.get(localCloseEnv.id), "still running");
+
+  const persistedCloseEnv = (await closeBackend.create({ name: "Persisted close failure" })).environment;
+  await setRunningRuntime(persistedCloseEnv, 6300);
+  closeBackend._terminatePid = async pid => {
+    assert.equal(pid, 6300);
+    return { ok: false, forced: false };
+  };
+  await assert.rejects(() => closeBackend.close({ id: persistedCloseEnv.id }), /did not stop/);
+  const persistedCloseState = await closeBackend._loadEnv(persistedCloseEnv.id);
+  assert.equal(persistedCloseState.runtime.status, "closing");
+  assert.equal(persistedCloseState.runtime.pid, 6300);
+
+  const confirmedCloseEnv = (await closeBackend.create({ name: "Confirmed close" })).environment;
+  await setRunningRuntime(confirmedCloseEnv, 6400);
+  const confirmedProc = {
+    pid: 6400,
+    exitCode: null,
+    killCalls: 0,
+    kill() {
+      this.killCalls += 1;
+    },
+  };
+  closeBackend._procs.set(confirmedCloseEnv.id, confirmedProc);
+  closeBackend._procDrains.set(confirmedCloseEnv.id, Promise.resolve());
+  closeBackend._procOutputTails.set(confirmedCloseEnv.id, "stopped output");
+  closeBackend._terminatePid = async pid => {
+    assert.equal(pid, 6400);
+    return { ok: true, forced: true };
+  };
+  const confirmedClose = await closeBackend.close({ id: confirmedCloseEnv.id });
+  assert.equal(confirmedClose.ok, true);
+  assert.equal(confirmedClose.environment.runtime.status, "stopped");
+  assert.equal(confirmedClose.environment.runtime.pid, null);
+  assert.equal(confirmedClose.environment.runtime.stopReason, "forced-kill-after-timeout");
+  assert.equal(confirmedProc.killCalls, 1);
+  assert.equal(closeBackend._procs.has(confirmedCloseEnv.id), false);
+  assert.equal(closeBackend._procDrains.has(confirmedCloseEnv.id), false);
+  assert.equal(closeBackend._procOutputTails.has(confirmedCloseEnv.id), false);
+
+  const terminateBackend = new EnvironmentBackend({ root: path.join(root, "terminate-confirmation") });
+  let terminateState = "dead";
+  let terminateKillCalls = 0;
+  terminateBackend._pidState = async pid => {
+    assert.equal(pid, 6500);
+    return terminateState;
+  };
+  terminateBackend._killPid = async pid => {
+    assert.equal(pid, 6500);
+    terminateKillCalls += 1;
+    return false;
+  };
+  assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: true, forced: false });
+  assert.equal(terminateKillCalls, 0);
+  terminateState = "alive";
+  assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: false, forced: false });
+  terminateState = "unknown";
+  assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: false, forced: false });
+  assert.equal(terminateKillCalls, 2);
+
   const launchRoot = path.join(root, "windows-launch");
   const launchCalls = [];
   let launchStarted = false;

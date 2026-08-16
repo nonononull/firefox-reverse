@@ -2384,15 +2384,17 @@ export class EnvironmentBackend {
       throw new Error("id required");
     }
     const env = await this._loadEnv(String(id));
-    const pid = env.runtime?.pid || null;
+    const proc = this._procs.get(env.id);
+    const pid = env.runtime?.pid || proc?.pid || null;
     env.runtime = {
       ...(env.runtime || {}),
       status: "closing",
+      pid,
       lastClosingAt: nowISO(),
     };
     await this._saveRuntime(env);
-    const proc = this._procs.get(env.id);
     let forced = false;
+    let stopped = !proc && !pid;
     if (proc && proc.kill) {
       try {
         proc.kill();
@@ -2400,19 +2402,31 @@ export class EnvironmentBackend {
           await Promise.race([proc.wait(), delay(15000)]);
         }
       } catch {
-        /* process may already be gone */
+        /* 进程可能已经退出 */
       }
-      const procPid = pid || proc.pid || null;
-      if (procPid && (await this._pidAlive(procPid))) {
-        forced = await this._killPid(procPid, { force: true });
+      if (pid) {
+        stopped = (await this._pidState(pid, env.id)) === PROCESS_DEAD;
+        if (!stopped) {
+          const res = await this._terminatePid(pid);
+          stopped = res.ok;
+          forced = res.forced;
+        }
+      } else {
+        stopped = proc.exitCode != null;
       }
-      this._procs.delete(env.id);
-      this._procDrains.delete(env.id);
-      this._procOutputTails.delete(env.id);
     } else if (pid) {
       const res = await this._terminatePid(pid);
+      stopped = res.ok;
       forced = res.forced;
+    } else if (proc) {
+      stopped = proc.exitCode != null;
     }
+    if (!stopped) {
+      throw new Error(`Firefox process ${pid || "with unknown PID"} did not stop; environment remains closing`);
+    }
+    this._procs.delete(env.id);
+    this._procDrains.delete(env.id);
+    this._procOutputTails.delete(env.id);
     env.runtime = {
       ...(env.runtime || {}),
       status: "stopped",
@@ -3099,17 +3113,16 @@ export class EnvironmentBackend {
     }
   }
 
-  async _pidAlive(pid, envId = null) {
-    return (await this._pidState(pid, envId)) === PROCESS_ALIVE;
-  }
-
   async _terminatePid(pid) {
     if (!pid) {
       return { ok: false, forced: false };
     }
+    if ((await this._pidState(pid)) === PROCESS_DEAD) {
+      return { ok: true, forced: false };
+    }
     const signalled = await this._killPid(pid, { force: false });
     if (!signalled) {
-      return { ok: false, forced: false };
+      return { ok: (await this._pidState(pid)) === PROCESS_DEAD, forced: false };
     }
     for (let i = 0; i < 60; i++) {
       if ((await this._pidState(pid)) === PROCESS_DEAD) {
