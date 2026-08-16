@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-8-windows-force-fallback.md"
 approved_decision_ref: "session-plan:issue-8-windows-force-fallback#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:8cfd5155a7020f82a40bdef068c03aad6687cfd4"
+snapshot_ref: "git:aa3558230e883f96e0f2a3291483ff600267cd56"
 task_scope_boundary: project-local-owner-scope
-task_current_state: verification-passed-pending-exact-head-review
+task_current_state: delivery-ready-pending-final-doc-relock
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 GBrain 无 Windows taskkill force fallback 专用 workflow；复用项目 TDD、完整轻量门禁和 exact-head 审查合同。"
@@ -52,6 +52,6 @@ stop_gates:
 execution_evidence:
   test: "old blob 2d4dc51 deterministic RED; git:435a9d97 focused EnvironmentBackend selftest GREEN"
   build: "git:435a9d97 bundle 210.1kb and fixed 14/14 selftest files passed"
-  review: "pending final exact-head reviewer"
+  review: "git:a95b086cbc9fa5608c168995bd8975769fdf1665 APPROVE P0=0 P1=0 P2=0; focused, mirror and diff check passed"
   verification: "branding 22; official-registry high audit passed with one existing moderate; production/test/lockfile hashes unchanged; mirror/diff/clean passed"
-  closeout: "pending owner-authorized PR and squash merge"
+  closeout: "https://github.com/nonononull/firefox-reverse/pull/9 draft; pending final doc-only relock and squash merge"
