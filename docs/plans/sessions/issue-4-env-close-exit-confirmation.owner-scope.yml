@@ -1,6 +1,7 @@
 schema_version: agos.owner-scope.v1
 trusted_issuer: owner
 owner_exception_ref: owner-direct:2026-08-16-firefox-reverse-issue-4-env-close-exit-confirmation
+delivery_authorization_ref: owner-direct:2026-08-16-finish-issue-4-and-ship
 allowed_repositories:
   - project
 allowed_paths:
@@ -19,6 +20,10 @@ allowed_ops:
   - project-doc-write
   - build
   - verification
+  - git-commit
+  - git-push
+  - create-pr
+  - squash-merge
 allowed_path_ops:
   - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs::source-edit,write-code
   - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs::source-edit,write-code

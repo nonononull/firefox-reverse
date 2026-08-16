@@ -37,7 +37,7 @@ if ($LASTEXITCODE -ne 0) { throw 'environment backend mirrors differ' }
 - PID 已 dead 时无需再发信号；alive 或 unknown 且信号失败时继续失败关闭。
 - 终止确认成功后才清理三张进程所有权表，并写入 `stopped/pid=null`。
 
-最终测试必须对治理 snapshot `96ad3526cc201f49512661fa83e4df8ca54d3793` 中的旧生产模块保持 mutation-killing RED。实现 checkpoint 后先执行上述 focused gate，再从 `npm ci` 开始只运行一次完整轻量门禁；若代码或测试发生后续变化，原完整门禁证据失效。
+最终测试必须对治理 snapshot `96ad3526cc201f49512661fa83e4df8ca54d3793` 中的旧生产模块保持 mutation-killing RED。Reviewer 补充的三条交错还必须分别杀死 PID 优先级、活动空 PID 成功关闭和迟到 drain 回写变体。实现 checkpoint 后先执行上述 focused gate，再从 `npm ci` 开始只运行一次完整轻量门禁；若代码或测试发生后续变化，原完整门禁证据失效。
 
 ## 完整轻量门禁
 
@@ -84,8 +84,9 @@ Issue #4 只允许 owner-scope 中的两份环境后端、一个环境自测、`
 
 ## Issue #4 当前验证快照
 
-- 实现提交：`3e759165f215ed233a1ae6556e61b916e675b56f`，tree `32b34289230230d61d7c047f51ca17ef249d4f81`。
-- 完整轻量门禁：`npm ci`、bundle `210.1kb`、固定 13/13 Node 自测文件与 branding 22 全部通过；环境自测包含最终失败关闭合同。
-- audit 首次沿用本机 `https://registry.npmmirror.com`，因该镜像返回 `NOT_IMPLEMENTED` 而失败。未重跑产品全链；同一 clean HEAD 上改用官方 registry 后 high/critical 门禁通过，仅报告既有 esbuild 开发依赖 1 个 moderate，其建议需要 breaking upgrade。
+- 实现提交：`3f8e2eb07a385ed132a5722a1395036ce59040a7`，tree `37653593260fcd8c3298529dfff41c3cbe67479c`；源码镜像 blob 均为 `2d4dc51a4a67b64884a8637ec2abdfd6f626509a`，环境自测 blob 为 `8e7aa44badb0cdea0b332a3b9dcb1be544960c44`。
+- Reviewer 在旧 HEAD `ebfa171757e1c43187059e4af3eb37de0d1bc466` 报告 P1=2、P2=1；当前实现分别用 `PID_PRIORITY`、`ACTIVE_WITHOUT_PID`、`LATE_DRAIN_FENCE` 三个内存 mutation 变体确认 RED，修复后的 focused 自测通过。
+- 完整轻量门禁：从 fresh `npm ci` 开始仅运行一次，bundle `210.1kb`、固定 13/13 Node 自测文件与 branding 22 全部通过；未重跑产品全链。
+- 官方 `https://registry.npmjs.org` high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate，其建议需要 breaking upgrade。
 - `package-lock.json` SHA-256 在安装、构建、自测与 audit 前后均为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`；两份环境后端一致，`git diff --check` 通过，验证结束时工作树 clean。
 - 本仓库没有 pull-request CI；上述均为 Windows / Node `v22.23.1` / npm `10.9.8` 的本地证据，不能表述为 hosted CI。

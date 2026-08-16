@@ -17,9 +17,9 @@ brainstorming_method: executor-native
 execution_contract: agos.execution-contract.v1
 command_source: project-build-docs
 implicit_tool_preconditions: forbidden
-scope_hash: sha256:2f043db88ceeb8938c0e6637e4990d01935c984a15bd68f9d775873674e59d80
+scope_hash: sha256:f093f588a5dc02df6a2f018fee265690f0891549ab13a4a18bf896cb4dc19b53
 owner_scope_ref: docs/plans/sessions/issue-4-env-close-exit-confirmation.owner-scope.yml
-owner_scope_hash: sha256:2f043db88ceeb8938c0e6637e4990d01935c984a15bd68f9d775873674e59d80
+owner_scope_hash: sha256:f093f588a5dc02df6a2f018fee265690f0891549ab13a4a18bf896cb4dc19b53
 selected_business_path: github-issue-pr-merge
 verification_commands:
   - node additions/browser/components/agent-sidebar/dev/selftest-environment.mjs
@@ -34,7 +34,7 @@ delivery_contract: agos.issue-pr-merge.v1
 tracking_issue_ref: https://github.com/nonononull/firefox-reverse/issues/4
 review_strategy: one fresh exact-head readonly reviewer after the last mutation
 ci_expectation: no pull-request CI; record the repository capability and local complete gate
-merge_policy: pending-explicit-owner-authorization
+merge_policy: owner-authorized-after-fresh-zero-finding-review
 allowed_operations:
   - source-edit
   - write-code
@@ -42,6 +42,10 @@ allowed_operations:
   - project-doc-write
   - build
   - verification
+  - git-commit
+  - git-push
+  - create-pr
+  - squash-merge
 forbidden_operations:
   - commit-without-owner-authorization
   - push-without-owner-authorization
@@ -113,7 +117,7 @@ agent_lifecycle:
     - none
   completion_status:
     completed:
-      - none
+      - issue4_exact_head_reviewer:git-ebfa1717-request-changes-p1-2-p2-1
     idle:
       - none
     timeout:
@@ -130,7 +134,7 @@ agent_lifecycle:
 user_decision: approved-issue-worktree-red-minimal-fix-and-verification
 ```
 
-两个 reviewer 均在返回设计意见前因固定 `gpt-5.6-sol` 供应端 503 退出。主线程仅按已批准范围继续准备；不得降级或换模，最终独立审查仍为未满足门禁。
+初始两个 reviewer 均在返回设计意见前因固定 `gpt-5.6-sol` 供应端 503 退出，失败记录保留且没有降级或换模。后续同模型 Reviewer 在 `ebfa171757e1c43187059e4af3eb37de0d1bc466` 完成审查并给出 P1=2、P2=1；`3f8e2eb07a385ed132a5722a1395036ce59040a7` 已按三条确定性交错修复，最终独立审查仍须绑定最后文档提交。
 
 ## Change Contract
 
@@ -189,7 +193,7 @@ change_contract:
       command_or_evidence_ref: git diff --no-index EnvironmentBackend.sys.mjs EnvironmentBackendCurrent.sys.mjs
       expected_result: no difference
   sibling_regression_guard:
-    status: pending
+    status: passed
     closeout_rule: passed-or-blocked-before-done
     exception_ref: none
   protected_feature_replay:
@@ -199,11 +203,11 @@ change_contract:
         owner: EnvironmentBackend
         baseline_evidence_ref: git:ddd9b620188804fc23636c057c827d6ed9746ee5 and existing selftest-environment.mjs
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: pending
+        post_change_replay_ref: git:3f8e2eb07a385ed132a5722a1395036ce59040a7
         expected_result: 环境 create/open/status/delete、PID alive/dead/unknown 与全部 13 项自测保持通过
-        actual_result: pending
-        owner_visible_status: pending
-        regression_status: pending
+        actual_result: bundle、固定 13/13 Node 自测与 branding 22 通过
+        owner_visible_status: passed
+        regression_status: passed
     forbidden_ops_until_replay:
       - claim-done
       - push
@@ -236,19 +240,19 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#Issue-4-focused-gate
-    result_ref: pending-red-then-green
+    result_ref: git:3f8e2eb07a385ed132a5722a1395036ce59040a7; three-reviewer-mutations-red; focused-green
   build:
     command_ref: build.md#侧栏构建
-    result_ref: pending
+    result_ref: git:3f8e2eb07a385ed132a5722a1395036ce59040a7; bundle-210.1kb
   review:
     command_ref: build.md#独立审查
-    result_ref: blocked-fixed-model-provider-503
+    result_ref: git:ebfa171757e1c43187059e4af3eb37de0d1bc466-request-changes-corrected; final-head-review-pending
   verification:
     command_ref: build.md#完整轻量门禁
-    result_ref: pending
+    result_ref: git:3f8e2eb07a385ed132a5722a1395036ce59040a7; npm-ci-build-13-selftests-branding22-audit-high-mirror-diff-clean-passed
   closeout:
     command_ref: err.md#Issue-4
-    result_ref: pending
+    result_ref: owner-authorized-delivery-pending-final-review
 ```
 
 ## 启动冻结
@@ -256,4 +260,4 @@ execution_evidence:
 - 远端 `main` 与隔离 worktree 基线：commit `ddd9b620188804fc23636c057c827d6ed9746ee5`，tree `d1bf351bf478a10f8605f2bef818c0d8a9476958`。
 - GitHub 跟踪：`https://github.com/nonononull/firefox-reverse/issues/4`，状态 OPEN。
 - 主 worktree `D:\Android_source\firefox-reverse` 的 Issue #1 分支与用户修改不属于本任务，禁止读取后写回或清理。
-- 当前授权未明确包含 commit、push、PR 或 merge；runtime workflow 必须等治理 checkpoint 获得明确授权并形成真实 snapshot 后再生成和校验。
+- 牢大在 `2026-08-16` 明确授权完成本批并尽快交付生产；该授权覆盖门禁通过后的 commit、push、PR 与 squash merge，不扩大到发布二进制、替换本机 `omni.ja`、启动或处置真实 Firefox/Reverse Lab 运行态。
