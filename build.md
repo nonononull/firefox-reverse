@@ -86,6 +86,7 @@ Issue #4 只允许 owner-scope 中的两份环境后端、一个环境自测、`
 
 - 实现提交：`3f8e2eb07a385ed132a5722a1395036ce59040a7`，tree `37653593260fcd8c3298529dfff41c3cbe67479c`；源码镜像 blob 均为 `2d4dc51a4a67b64884a8637ec2abdfd6f626509a`，环境自测 blob 为 `8e7aa44badb0cdea0b332a3b9dcb1be544960c44`。
 - Reviewer 在旧 HEAD `ebfa171757e1c43187059e4af3eb37de0d1bc466` 报告 P1=2、P2=1；当前实现分别用 `PID_PRIORITY`、`ACTIVE_WITHOUT_PID`、`LATE_DRAIN_FENCE` 三个内存 mutation 变体确认 RED，修复后的 focused 自测通过。
+- fresh 独立 Reviewer 在 exact HEAD `9398c9238395c4e1d9fbb3cb389ef58d39a24cdc` 返回 `APPROVE`，P0/P1/P2 均为 0，并独立执行 focused 自测通过；交付 PR 为 `https://github.com/nonononull/firefox-reverse/pull/5`。
 - 完整轻量门禁：从 fresh `npm ci` 开始仅运行一次，bundle `210.1kb`、固定 13/13 Node 自测文件与 branding 22 全部通过；未重跑产品全链。
 - 官方 `https://registry.npmjs.org` high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate，其建议需要 breaking upgrade。
 - `package-lock.json` SHA-256 在安装、构建、自测与 audit 前后均为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`；两份环境后端一致，`git diff --check` 通过，验证结束时工作树 clean。

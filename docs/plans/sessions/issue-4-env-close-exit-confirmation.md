@@ -32,6 +32,9 @@ verification_commands:
   - git diff --no-index EnvironmentBackend.sys.mjs EnvironmentBackendCurrent.sys.mjs
 delivery_contract: agos.issue-pr-merge.v1
 tracking_issue_ref: https://github.com/nonononull/firefox-reverse/issues/4
+review_ref: codex-agent:issue4_final_exact_head_reviewer@9398c9238395c4e1d9fbb3cb389ef58d39a24cdc
+pr_ref: https://github.com/nonononull/firefox-reverse/pull/5
+ci_ref: no-pull-request-ci
 review_strategy: one fresh exact-head readonly reviewer after the last mutation
 ci_expectation: no pull-request CI; record the repository capability and local complete gate
 merge_policy: owner-authorized-after-fresh-zero-finding-review
@@ -246,13 +249,13 @@ execution_evidence:
     result_ref: git:3f8e2eb07a385ed132a5722a1395036ce59040a7; bundle-210.1kb
   review:
     command_ref: build.md#独立审查
-    result_ref: git:ebfa171757e1c43187059e4af3eb37de0d1bc466-request-changes-corrected; final-head-review-pending
+    result_ref: git:9398c9238395c4e1d9fbb3cb389ef58d39a24cdc-approve-p0-0-p1-0-p2-0-focused-pass
   verification:
     command_ref: build.md#完整轻量门禁
     result_ref: git:3f8e2eb07a385ed132a5722a1395036ce59040a7; npm-ci-build-13-selftests-branding22-audit-high-mirror-diff-clean-passed
   closeout:
     command_ref: err.md#Issue-4
-    result_ref: owner-authorized-delivery-pending-final-review
+    result_ref: owner-authorized-draft-pr-5-pending-doc-only-exact-head-relock-and-merge
 ```
 
 ## 启动冻结

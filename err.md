@@ -32,5 +32,6 @@
 - 独立审查纠错：Reviewer 在旧 HEAD `ebfa171757e1c43187059e4af3eb37de0d1bc466` 发现三条确定性交错：`starting/pid=null` 可被 close 伪报成功、runtime PID 优先于本地句柄 PID、迟到 output drain 可在 close 后恢复尾部。结论为 `REQUEST_CHANGES`，P1=2、P2=1。
 - Reviewer RED：当前自测对 `PID_PRIORITY`、`ACTIVE_WITHOUT_PID`、`LATE_DRAIN_FENCE` 三个内存生产变体分别输出 `MUTATION_RED_CONFIRMED`；修复只增加活动状态门禁、本地句柄 PID 优先和 drain Promise 身份栅栏，不扩公共合同。
 - fresh 完整门禁：实现提交 `3f8e2eb07a385ed132a5722a1395036ce59040a7`、tree `37653593260fcd8c3298529dfff41c3cbe67479c` 上，从 `npm ci` 开始的一次 bundle、固定 13/13 Node 自测和 branding 22 全部通过；官方 high audit 通过并仅剩既有 esbuild moderate，lockfile SHA-256 未变。
-- 待验证：最终 exact-head 独立审查、push、PR 与 merge 尚未完成。牢大已授权门禁通过后的 Git 交付；Firefox 二进制发布、安装与真实三 Lane cleanup 仍不在本批范围，不能提前表述为运行态生产完成。
+- 最终独立审查：Reviewer 在 exact HEAD `9398c9238395c4e1d9fbb3cb389ef58d39a24cdc` 返回 `APPROVE`，P0/P1/P2 均为 0，identity、8-path scope、clean 与独立 focused 均通过。分支已推送并创建 Draft PR `https://github.com/nonononull/firefox-reverse/pull/5`；当前只剩文档回写后的 exact-head 复锁与 squash merge。
+- 发布边界：牢大已授权门禁通过后的 Git 交付；Firefox 二进制发布、安装与真实三 Lane cleanup 仍不在本批范围，不能把源码合并表述为运行态生产完成。
 - 边界：没有启动或修改 Firefox、Reverse Lab、lease、assignment、quarantine、runtime JSON、账号、live origin 或其它项目。
