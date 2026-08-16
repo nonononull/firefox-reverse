@@ -32,8 +32,8 @@ verification_commands:
   - git diff --no-index EnvironmentBackend.sys.mjs EnvironmentBackendCurrent.sys.mjs
 delivery_contract: agos.issue-pr-merge.v1
 tracking_issue_ref: https://github.com/nonononull/firefox-reverse/issues/8
-review_ref: pending-final-exact-head-review
-pr_ref: pending
+review_ref: codex-agent:issue8_final_review@a95b086cbc9fa5608c168995bd8975769fdf1665
+pr_ref: https://github.com/nonononull/firefox-reverse/pull/9
 ci_ref: no-pull-request-ci
 review_strategy: one fresh exact-head readonly reviewer after the last mutation
 ci_expectation: no pull-request CI; record repository capability and local complete gate
@@ -258,13 +258,13 @@ execution_evidence:
     result_ref: git:435a9d97; bundle-210.1kb
   review:
     command_ref: build.md#独立审查
-    result_ref: pending-final-exact-head-review
+    result_ref: git:a95b086cbc9fa5608c168995bd8975769fdf1665; APPROVE P0-0 P1-0 P2-0; focused-mirror-diff-pass
   verification:
     command_ref: build.md#完整轻量门禁
     result_ref: git:435a9d97; npm-ci-build-14-selftests-branding22-audit-high-mirror-diff-clean-passed
   closeout:
     command_ref: err.md#Issue-8
-    result_ref: pending-pr-and-squash-merge
+    result_ref: https://github.com/nonononull/firefox-reverse/pull/9 draft; pending final doc-only relock and squash merge
 ```
 
 ## 启动冻结

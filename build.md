@@ -146,6 +146,7 @@ Issue #8 只允许 owner scope 中的两份环境后端、一个环境自测、`
 - 唯一一次完整轻量门禁：Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始，安装 7 个包、bundle `210.1kb`、固定 14/14 Node 自测文件与 branding 22 全部通过。
 - 官方 registry high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #8。
 - 完整门禁前后工作树 SHA-256 一致：两份生产模块均为 `30fd79546057df6930591de965d660a3d7605191fa4d2e032e6e79e38ea659fc`，环境自测为 `8a6bad27cb8823ca79ddbbaf4b137194704e7aadf824d6ad9c5cfaf37a817e69`，lockfile 为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- fresh exact-head reviewer 在 `a95b086cbc9fa5608c168995bd8975769fdf1665` 返回 `APPROVE`，P0/P1/P2 均为 0；独立 focused、镜像与 `git diff --check` 通过，完整 14 项门禁按约束未重复。交付 PR 为 `https://github.com/nonononull/firefox-reverse/pull/9`。
 - 以上是本地完整证据，不是 hosted CI；仓库无 pull-request CI。治理证据写回不得触发第二次完整产品门禁，任何生产或测试变化则必须使本快照失效。
 
 ## Issue #6 当前验证快照
