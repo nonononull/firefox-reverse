@@ -205,21 +205,21 @@ change_contract:
       command_or_evidence_ref: git diff --no-index EnvironmentBackend.sys.mjs EnvironmentBackendCurrent.sys.mjs
       expected_result: no difference
   sibling_regression_guard:
-    status: blocked
+    status: passed
     closeout_rule: passed-or-blocked-before-done
     exception_ref: none
   protected_feature_replay:
-    status: planned
+    status: passed
     known_good_features:
       - feature: environment-create-open-close-status-delete-and-pid-three-state
         owner: EnvironmentBackend
         baseline_evidence_ref: git:cb23809f3c5b97f6dcb91f401ab149d3f2b109a3 and existing selftest-environment.mjs
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: pending
+        post_change_replay_ref: git:435a9d97e71a6a7ff1d12b5bb9d20042801fbe14
         expected_result: 环境 create/open/close/status/delete、PID alive/dead/unknown 与全部 14 项自测保持通过
-        actual_result: pending
-        owner_visible_status: pending
-        regression_status: pending
+        actual_result: bundle、固定 14/14 Node 自测与 branding 22 通过；官方 high audit 通过且仅有既有 moderate
+        owner_visible_status: passed
+        regression_status: passed
     forbidden_ops_until_replay:
       - claim-done
       - push
@@ -252,16 +252,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#Issue-8-focused-gate
-    result_ref: pending-deterministic-red-and-focused-green
+    result_ref: git:435a9d97; old-blob-2d4dc51 deterministic-red; focused-green
   build:
     command_ref: build.md#侧栏构建
-    result_ref: pending-complete-light-gate
+    result_ref: git:435a9d97; bundle-210.1kb
   review:
     command_ref: build.md#独立审查
     result_ref: pending-final-exact-head-review
   verification:
     command_ref: build.md#完整轻量门禁
-    result_ref: pending-complete-light-gate-audit-mirror-and-diff-check
+    result_ref: git:435a9d97; npm-ci-build-14-selftests-branding22-audit-high-mirror-diff-clean-passed
   closeout:
     command_ref: err.md#Issue-8
     result_ref: pending-pr-and-squash-merge

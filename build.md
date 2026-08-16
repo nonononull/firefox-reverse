@@ -138,6 +138,16 @@ git status --short
 
 Issue #8 只允许 owner scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档变化。不得启动 Firefox、处置真实 PID、修改 Reverse Lab 状态或把本地验证表述为 hosted CI。仓库没有 pull-request CI；production/test hash 在唯一一次完整门禁前后必须一致。
 
+## Issue #8 当前验证快照
+
+- 首个 RED：冻结旧生产 blob `2d4dc51a4a67b64884a8637ec2abdfd6f626509a` 返回 `actual={ok:false,forced:false}`、`expected={ok:true,forced:true}`，精确命中 Windows graceful false + alive 未升级 force。
+- focused GREEN：环境自测和两份后端镜像检查通过；参数矩阵覆盖 graceful 后 dead/unknown/alive、force false、force 后 alive/unknown、非 Windows no-force，并精确断言 `/T` 与 `/T /F`。
+- 实现提交：`435a9d97e71a6a7ff1d12b5bb9d20042801fbe14`，tree `ae428f229340c2097640429261ab2626a7f46049`；两份生产 blob 均为 `9a0ebbf039242ebfdb33c8707c73f3630ef18de0`，测试 blob 为 `7c00b4ad1bc162c53ec6eee5bf555519c0643901`。
+- 唯一一次完整轻量门禁：Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始，安装 7 个包、bundle `210.1kb`、固定 14/14 Node 自测文件与 branding 22 全部通过。
+- 官方 registry high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #8。
+- 完整门禁前后工作树 SHA-256 一致：两份生产模块均为 `30fd79546057df6930591de965d660a3d7605191fa4d2e032e6e79e38ea659fc`，环境自测为 `8a6bad27cb8823ca79ddbbaf4b137194704e7aadf824d6ad9c5cfaf37a817e69`，lockfile 为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- 以上是本地完整证据，不是 hosted CI；仓库无 pull-request CI。治理证据写回不得触发第二次完整产品门禁，任何生产或测试变化则必须使本快照失效。
+
 ## Issue #6 当前验证快照
 
 - 旧流 RED：治理基线测试得到 `7 passed, 18 failed`，18 项分别命中显式 null、Panel notes ctx、find async/ctx、scripts 页面来源与 JSVMP relay/status；reviewer 扩展反例在旧 `callTool()` 上得到 `27 passed, 1 failed`，唯一失败精确命中省略字段被压成 null。
