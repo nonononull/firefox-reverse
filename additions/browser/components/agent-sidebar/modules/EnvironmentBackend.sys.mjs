@@ -3127,22 +3127,32 @@ export class EnvironmentBackend {
     }
     const signalled = await this._killPid(pid, { force: false });
     if (!signalled) {
-      return { ok: (await this._pidState(pid)) === PROCESS_DEAD, forced: false };
-    }
-    for (let i = 0; i < 60; i++) {
-      if ((await this._pidState(pid)) === PROCESS_DEAD) {
+      const state = await this._pidState(pid);
+      if (state === PROCESS_DEAD) {
         return { ok: true, forced: false };
       }
-      await delay(250);
+      if (state !== PROCESS_ALIVE || safe(() => Services.appinfo.OS, "") !== "WINNT") {
+        return { ok: false, forced: false };
+      }
+    } else {
+      for (let i = 0; i < 60; i++) {
+        if ((await this._pidState(pid)) === PROCESS_DEAD) {
+          return { ok: true, forced: false };
+        }
+        await delay(250);
+      }
     }
     const forced = await this._killPid(pid, { force: true });
+    if (!forced) {
+      return { ok: false, forced: false };
+    }
     for (let i = 0; i < 20; i++) {
       if ((await this._pidState(pid)) === PROCESS_DEAD) {
-        return { ok: true, forced };
+        return { ok: true, forced: true };
       }
       await delay(250);
     }
-    return { ok: false, forced };
+    return { ok: false, forced: true };
   }
 
   async _killPid(pid, { force = false } = {}) {

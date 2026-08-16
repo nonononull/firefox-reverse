@@ -1,0 +1,50 @@
+schema_version: agos.owner-scope.v1
+trusted_issuer: owner
+owner_exception_ref: owner-direct:2026-08-17-firefox-reverse-issue-8-windows-force-fallback
+delivery_authorization_ref: owner-direct:2026-08-17-finish-firefox-issue-8-then-paseo-issue-10
+allowed_repositories:
+  - project
+allowed_paths:
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\build.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\err.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\docs\plans\sessions\issue-8-windows-force-fallback.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\docs\plans\sessions\issue-8-windows-force-fallback.owner-scope.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\.ai-growth-os\runtime-workflows\issue-8-windows-force-fallback.yml
+allowed_ops:
+  - source-edit
+  - write-code
+  - write-test
+  - project-doc-write
+  - build
+  - verification
+  - git-commit
+  - git-push
+  - create-pr
+  - squash-merge
+allowed_path_ops:
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs::source-edit,write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\build.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\err.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\docs\plans\sessions\issue-8-windows-force-fallback.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\docs\plans\sessions\issue-8-windows-force-fallback.owner-scope.yml::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-8-windows-force-fallback\.ai-growth-os\runtime-workflows\issue-8-windows-force-fallback.yml::project-doc-write,git-add,commit
+forbidden_ops:
+  - commit-without-owner-authorization
+  - push-without-owner-authorization
+  - create-pr-without-owner-authorization
+  - merge-without-owner-authorization
+  - create-upstream-pr
+  - publish-binary
+  - replace-installed-omni-ja
+  - start-or-modify-browser-runtime
+  - kill-or-modify-existing-process
+  - mutate-reverse-lab
+  - mutate-lease-assignment-quarantine-or-runtime-json
+  - mutate-pingbo-bet365-agos-or-other-project
+  - access-account-or-live-origin
+  - add-public-tool-protocol-error-code-config-format-or-lifecycle-state

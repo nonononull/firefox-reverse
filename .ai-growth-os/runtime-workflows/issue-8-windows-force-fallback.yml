@@ -1,0 +1,57 @@
+schema_version: agos.runtime-workflow.v1
+task_id: "issue-8-windows-force-fallback"
+project_root: "D:\\Android_source\\firefox-reverse-worktrees\\issue-8-windows-force-fallback"
+task_authority_kind: project-local
+task_authority_status: ready
+task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
+task_authority_source_sha256: "sha256:e019ccb5b83d6698433df82ecef3f6d595b022b5bfb7ce6ad54472281e34608b"
+task_authority_bootstrap_paths: "docs/plans/sessions/issue-8-windows-force-fallback.md,docs/plans/sessions/issue-8-windows-force-fallback.owner-scope.yml"
+scope_hash: "sha256:ca5ff5b31137aed5edcddf9189b712c131dbbe05f934b0049d6308146dd00702"
+owner_scope_ref: "docs/plans/sessions/issue-8-windows-force-fallback.owner-scope.yml"
+owner_scope_hash: "sha256:ca5ff5b31137aed5edcddf9189b712c131dbbe05f934b0049d6308146dd00702"
+execution_profile: project-native-v1
+session_plan_ref: "docs/plans/sessions/issue-8-windows-force-fallback.md"
+approved_decision_ref: "session-plan:issue-8-windows-force-fallback#decision"
+selected_business_path: "github-issue-pr-merge"
+snapshot_ref: "git:aa3558230e883f96e0f2a3291483ff600267cd56"
+task_scope_boundary: project-local-owner-scope
+task_current_state: delivery-ready-pending-final-doc-relock
+mutation_admission_status: project-local-owner-scope-required
+workflow_lookup_mode: dynamic-generated
+dynamic_workflow_gap_summary: "本地 GBrain 无 Windows taskkill force fallback 专用 workflow；复用项目 TDD、完整轻量门禁和 exact-head 审查合同。"
+execution_nodes:
+  - id: deterministic-red
+    command_ref: "node additions/browser/components/agent-sidebar/dev/selftest-environment.mjs"
+    expected_result: "冻结旧流在 Windows graceful=false + alive 后未进入 force:true，参数级反例稳定失败"
+  - id: minimal-fix
+    command_ref: "仅修改 owner scope 内两份同步后端"
+    expected_result: "Windows graceful 失败按 dead/unknown/alive 分流，force 失败继续失败关闭"
+  - id: focused-green
+    command_ref: "build.md#Issue-8-Windows-force-fallback-focused-gate"
+    expected_result: "状态矩阵、taskkill 参数与 close 终态全部通过，两份模块逐字一致"
+  - id: complete-light-gate
+    command_ref: "build.md#完整轻量门禁"
+    expected_result: "fresh npm ci、bundle、14 项自测、branding、audit、mirror 与 diff check 通过"
+  - id: exact-head-review
+    command_ref: "build.md#Issue-8-independent-review"
+    expected_result: "固定模型 reviewer 对最终 exact HEAD 返回 P0/P1/P2 全零"
+  - id: github-delivery
+    command_ref: "owner-authorized push, Fixes #8 PR and squash merge"
+    expected_result: "PR 合并且 GitHub Issue #8 自动关闭"
+stop_gates:
+  - branch-head-tree-remote-or-issue-drift
+  - owner-scope-or-governance-snapshot-drift
+  - red-does-not-fail-for-graceful-false-alive-without-force
+  - any-source-or-test-path-outside-owner-scope
+  - any-non-windows-force-escalation
+  - any-force-failure-reported-as-success
+  - any-public-tool-protocol-error-code-config-state-or-timeout-expansion
+  - any-real-firefox-reverse-lab-pid-lease-assignment-quarantine-or-runtime-mutation
+  - complete-gate-failure-without-root-cause
+  - fixed-model-provider-unavailable-before-required-independent-review
+execution_evidence:
+  test: "old blob 2d4dc51 deterministic RED; git:435a9d97 focused EnvironmentBackend selftest GREEN"
+  build: "git:435a9d97 bundle 210.1kb and fixed 14/14 selftest files passed"
+  review: "git:a95b086cbc9fa5608c168995bd8975769fdf1665 APPROVE P0=0 P1=0 P2=0; focused, mirror and diff check passed"
+  verification: "branding 22; official-registry high audit passed with one existing moderate; production/test/lockfile hashes unchanged; mirror/diff/clean passed"
+  closeout: "https://github.com/nonononull/firefox-reverse/pull/9 draft; pending final doc-only relock and squash merge"

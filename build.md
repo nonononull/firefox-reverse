@@ -67,6 +67,28 @@ if ($LASTEXITCODE -ne 0) { throw 'environment backend mirrors differ' }
 
 最终测试必须对治理 snapshot `96ad3526cc201f49512661fa83e4df8ca54d3793` 中的旧生产模块保持 mutation-killing RED。Reviewer 补充的三条交错还必须分别杀死 PID 优先级、活动空 PID 成功关闭和迟到 drain 回写变体。实现 checkpoint 后先执行上述 focused gate，再从 `npm ci` 开始只运行一次完整轻量门禁；若代码或测试发生后续变化，原完整门禁证据失效。
 
+## Issue #8 Windows force fallback 聚焦门禁
+
+```powershell
+node .\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs
+if ($LASTEXITCODE -ne 0) { throw 'environment selftest failed' }
+
+git diff --no-index -- `
+  .\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs `
+  .\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs
+if ($LASTEXITCODE -ne 0) { throw 'environment backend mirrors differ' }
+```
+
+参数级 fake 必须固定以下状态机，不启动或终止真实进程：
+
+- Windows graceful 失败后复查为 `dead` 时成功且不 force，`unknown` 时失败且不 force；
+- Windows graceful 失败后复查为 `alive` 时恰好按 `force:false`、`force:true` 顺序调用，并在确认 `dead` 后返回 forced success；
+- force 命令失败时不再用迟到 PID 探测伪造成功；force 成功但 PID 持续 `alive` 或变为 `unknown` 时仍失败关闭；
+- 非 Windows graceful 失败不自动升级 force；Windows 命令参数分别为 `/PID <pid> /T` 与 `/PID <pid> /T /F`；
+- `close()` 只有收到明确成功才发布 `stopped/pid=null`，force success 对应 `forced-kill-after-timeout`。
+
+冻结旧流 `cb23809f3c5b97f6dcb91f401ab149d3f2b109a3` 的首个 RED 必须精确返回 `actual={ok:false,forced:false}`、`expected={ok:true,forced:true}`，失败原因是 graceful false + alive 没有进入 force，而非语法、mock 或环境错误。focused GREEN 后，生产与测试冻结，再从 fresh `npm ci` 开始只运行一次“完整轻量门禁”；若三份生产/测试路径随后改变，该完整证据失效。
+
 ## 完整轻量门禁
 
 ```powershell
@@ -101,6 +123,31 @@ git status --short
 ```
 
 Issue #6 只允许 owner scope 中的七份生产模块、一个隔离自测、Unix 聚合测试入口、`AGENTS.md`、`build.md`、`err.md` 与三份任务控制文档变化。完整门禁从 fresh `npm ci` 开始执行；生产代码、测试或聚合接线若随后改变，旧证据保留但最终树必须重新验证。仓库没有 pull-request CI，不得把本地结果表述为 hosted CI。
+
+## Issue #8 交付边界
+
+```powershell
+npm ci --prefix .\additions\browser\components\agent-sidebar
+npm --prefix .\additions\browser\components\agent-sidebar run build
+# 随后执行“完整轻量门禁”的固定 14 项自测与 branding 检查
+npm audit --prefix .\additions\browser\components\agent-sidebar --audit-level=high --registry=https://registry.npmjs.org
+git diff --check
+git diff --name-only cb23809f3c5b97f6dcb91f401ab149d3f2b109a3...HEAD
+git status --short
+```
+
+Issue #8 只允许 owner scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档变化。不得启动 Firefox、处置真实 PID、修改 Reverse Lab 状态或把本地验证表述为 hosted CI。仓库没有 pull-request CI；production/test hash 在唯一一次完整门禁前后必须一致。
+
+## Issue #8 当前验证快照
+
+- 首个 RED：冻结旧生产 blob `2d4dc51a4a67b64884a8637ec2abdfd6f626509a` 返回 `actual={ok:false,forced:false}`、`expected={ok:true,forced:true}`，精确命中 Windows graceful false + alive 未升级 force。
+- focused GREEN：环境自测和两份后端镜像检查通过；参数矩阵覆盖 graceful 后 dead/unknown/alive、force false、force 后 alive/unknown、非 Windows no-force，并精确断言 `/T` 与 `/T /F`。
+- 实现提交：`435a9d97e71a6a7ff1d12b5bb9d20042801fbe14`，tree `ae428f229340c2097640429261ab2626a7f46049`；两份生产 blob 均为 `9a0ebbf039242ebfdb33c8707c73f3630ef18de0`，测试 blob 为 `7c00b4ad1bc162c53ec6eee5bf555519c0643901`。
+- 唯一一次完整轻量门禁：Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始，安装 7 个包、bundle `210.1kb`、固定 14/14 Node 自测文件与 branding 22 全部通过。
+- 官方 registry high/critical audit 通过，仅报告既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #8。
+- 完整门禁前后工作树 SHA-256 一致：两份生产模块均为 `30fd79546057df6930591de965d660a3d7605191fa4d2e032e6e79e38ea659fc`，环境自测为 `8a6bad27cb8823ca79ddbbaf4b137194704e7aadf824d6ad9c5cfaf37a817e69`，lockfile 为 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- fresh exact-head reviewer 在 `a95b086cbc9fa5608c168995bd8975769fdf1665` 返回 `APPROVE`，P0/P1/P2 均为 0；独立 focused、镜像与 `git diff --check` 通过，完整 14 项门禁按约束未重复。交付 PR 为 `https://github.com/nonononull/firefox-reverse/pull/9`。
+- 以上是本地完整证据，不是 hosted CI；仓库无 pull-request CI。治理证据写回不得触发第二次完整产品门禁，任何生产或测试变化则必须使本快照失效。
 
 ## Issue #6 当前验证快照
 
