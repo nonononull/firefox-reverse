@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-10-force-failure-pid-confirmation.md"
 approved_decision_ref: "session-plan:issue-10-force-failure-pid-confirmation#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:c0008f98dfd3a4a9d57c29e156c89e90c7734504"
+snapshot_ref: "git:8d6d5e298a126ec3a65e1aa0e30c2597a031b3c9"
 task_scope_boundary: project-local-owner-scope
-task_current_state: bootstrap-control-docs-pending-review-and-commit
+task_current_state: source-edit-ready-pending-deterministic-red
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 GBrain 无 force command false 后延迟 PID death 专用 workflow；复用项目 EnvironmentBackend TDD、完整轻量门禁和 exact-head 审查合同。"
