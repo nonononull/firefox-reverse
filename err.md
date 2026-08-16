@@ -1,5 +1,15 @@
 # 排错记录
 
+## 2026-08-17：强制停止命令失败后漏掉迟到的 PID 死亡确认
+
+- 现场：Paseo Reverse Lab Attempt 9 已消除三 Gateway 并发 stop 冲突，三 Lane、独立 profile/artifact/PID/port 与第四容量门均通过；但三个首次 `frx_env_close` 都在约 3.2 秒返回 `Firefox process <pid> did not stop; environment remains closing`。精确 PID 随后自行退出，lane-1 再次 close 在 283ms 内成功。失败 receipt SHA-256 为 `c2769c0f757022ff94cd2ea8daa43b7023804a515aec43e6adfab6b34655bae8`；a9 assignment 与 lease 正确保留 quarantined，未手工修改或删除。
+- 根因：`origin/main=c0008f98dfd3a4a9d57c29e156c89e90c7734504` 的 `_terminatePid()` 在 Windows graceful 失败且 PID alive 后进入 force；若 force 命令返回 false，会立即返回失败，不再使用已有 20 次 PID 确认窗口。taskkill 非零只说明命令结果，不能证明终止中的目标 PID 仍存活。
+- 修复合同：force 命令 true/false 都进入同一个既有有界 PID 观察窗口；明确 dead 才成功。force false 后 delayed dead 返回 `{ ok:true, forced:false }`；持续 alive 或 unknown 仍返回失败，`close()` 保留 `closing`，不新增配置、超时、状态、错误码或公共 API。
+- 运行态边界：本 Firefox 源码批次禁止启动或终止真实 Firefox，禁止修改 Reverse Lab runtime JSON、assignment、lease 或 quarantine；Attempt 9 仍是失败验收，不能由后续补偿升级为 PASS。
+- 当前门禁：GitHub Issue #10 与独立 worktree 已建立，两个只读 reviewer 均认可三文件最小修复和 mutation-killing 矩阵；确定性 RED、生产修复、focused/full 门禁、exact-head 审查与 PR/merge 尚待执行。
+- 治理纠错：session plan 首次校验因遗漏顶层 `verification_commands` 被拒绝，补齐后 `SESSION_PLAN_VERIFY_OK`；control-doc boundary 为 ready。AGOS default-entry ReportOnly 确认 project-local task authority 为 ready，但本仓没有中央 issue-state-v1 注册，legacy route 仍返回 blocked；保留该失败，不把它伪报为通过。GitHub Issue #10、project-local owner scope 与牢大直接授权继续作为正式执行 authority。
+- 治理快照：bootstrap 提交前 runtime verifier 按预期拒绝基线 `c0008f98`，精确指出新 session plan 尚未进入 `snapshot_ref`；先提交五份控制文档，再以纯治理提交绑定该 commit，不能跳过或伪造 runtime READY。
+
 ## 2026-08-17：Windows env_close 在温和 taskkill 失败后未升级强制关闭
 
 - 现场：`origin/main=cb23809f3c5b97f6dcb91f401ab149d3f2b109a3`。Windows `_terminatePid()` 调用 `/T` 返回非零后只复查一次 PID；PID 仍为 `alive` 时直接返回失败，已有 `/T /F` 分支不可达。Attempt 7b 的同类现场为 exit `128` 且完整进程树仍存活。
