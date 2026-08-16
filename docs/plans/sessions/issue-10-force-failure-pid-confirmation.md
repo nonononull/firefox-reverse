@@ -221,21 +221,21 @@ change_contract:
       command_or_evidence_ref: git diff --no-index EnvironmentBackend.sys.mjs EnvironmentBackendCurrent.sys.mjs
       expected_result: no difference
   sibling_regression_guard:
-    status: pending
+    status: passed
     closeout_rule: passed-or-blocked-before-done
     exception_ref: none
   protected_feature_replay:
-    status: planned
+    status: passed
     known_good_features:
       - feature: environment-create-open-close-status-delete-and-pid-three-state
         owner: EnvironmentBackend
         baseline_evidence_ref: git:c0008f98 and existing selftest-environment.mjs
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: pending
+        post_change_replay_ref: git:48b973de238cc8852ab6c12c54237bcc95368d4a
         expected_result: 环境 CRUD、PID dead/alive/unknown、graceful/force 路径与全部 14 项自测保持通过
-        actual_result: pending
-        owner_visible_status: pending
-        regression_status: pending
+        actual_result: bundle 210.1kb、固定 14/14 Node 自测与 branding 22 通过；官方 high audit 通过且仅有既有 moderate；镜像与 diff check 通过
+        owner_visible_status: passed
+        regression_status: passed
     forbidden_ops_until_replay:
       - claim-done
       - push
@@ -271,13 +271,13 @@ execution_evidence:
     result_ref: deterministic RED actual-ok-false expected-ok-true; focused EnvironmentBackend selftest and mirror GREEN
   build:
     command_ref: build.md#完整轻量门禁
-    result_ref: pending-final-tree
+    result_ref: git:48b973de238cc8852ab6c12c54237bcc95368d4a; bundle-210.1kb; fixed-14-selftests-and-branding22-passed
   review:
     command_ref: build.md#Issue-10-independent-review
     result_ref: pending-final-exact-head-review
   verification:
     command_ref: build.md#Issue-10-delivery-boundary
-    result_ref: pending-audit-mirror-diff-and-scope
+    result_ref: git:48b973de238cc8852ab6c12c54237bcc95368d4a; official-high-audit-mirror-diff-clean-passed; production-test-lockfile-hashes-unchanged
   closeout:
     command_ref: err.md#Issue-10
     result_ref: pending-pr-merge-and-return-to-paseo-issue-10
@@ -287,5 +287,6 @@ execution_evidence:
 
 - 隔离 worktree 基线：commit `c0008f98dfd3a4a9d57c29e156c89e90c7734504`，tree `e1b48e02b4877a8c235a9a7a82359c4ea9b51023`，创建后 clean，branch `codex/issue-10-force-failure-pid-confirmation`。
 - GitHub 跟踪：`https://github.com/nonononull/firefox-reverse/issues/10`，状态 OPEN。
+- 实现快照：commit `48b973de238cc8852ab6c12c54237bcc95368d4a`，tree `c16ce3f259e8d34ba97f4feb7e5e7628044955ba`；唯一一次完整轻量门禁已通过，后续治理证据写回不得重复产品全链。
 - 原 `D:\Android_source\firefox-reverse` 的 dirty Issue #1 worktree禁止触碰；Reverse Lab a8/a9、control Firefox 与全部 quarantine 只读。
 - 牢大已授权完成 Firefox 专门 Issue、focused/full 门禁、独立审查、PR/合并，然后重新生成 exact side-load 并返回 Paseo Issue #10。
