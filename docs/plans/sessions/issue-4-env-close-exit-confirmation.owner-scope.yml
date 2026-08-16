@@ -1,0 +1,50 @@
+schema_version: agos.owner-scope.v1
+trusted_issuer: owner
+owner_exception_ref: owner-direct:2026-08-16-firefox-reverse-issue-4-env-close-exit-confirmation
+delivery_authorization_ref: owner-direct:2026-08-16-finish-issue-4-and-ship
+allowed_repositories:
+  - project
+allowed_paths:
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\build.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\err.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\docs\plans\sessions\issue-4-env-close-exit-confirmation.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\docs\plans\sessions\issue-4-env-close-exit-confirmation.owner-scope.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\.ai-growth-os\runtime-workflows\issue-4-env-close-exit-confirmation.yml
+allowed_ops:
+  - source-edit
+  - write-code
+  - write-test
+  - project-doc-write
+  - build
+  - verification
+  - git-commit
+  - git-push
+  - create-pr
+  - squash-merge
+allowed_path_ops:
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackend.sys.mjs::source-edit,write-code
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\modules\EnvironmentBackendCurrent.sys.mjs::source-edit,write-code
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\additions\browser\components\agent-sidebar\dev\selftest-environment.mjs::source-edit,write-test
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\build.md::project-doc-write
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\err.md::project-doc-write
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\docs\plans\sessions\issue-4-env-close-exit-confirmation.md::project-doc-write
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\docs\plans\sessions\issue-4-env-close-exit-confirmation.owner-scope.yml::project-doc-write
+  - D:\Android_source\firefox-reverse-worktrees\issue-4-env-close-exit-confirmation\.ai-growth-os\runtime-workflows\issue-4-env-close-exit-confirmation.yml::project-doc-write
+forbidden_ops:
+  - commit-without-owner-authorization
+  - push-without-owner-authorization
+  - create-pr-without-owner-authorization
+  - merge-without-owner-authorization
+  - create-upstream-pr
+  - publish-binary
+  - replace-installed-omni-ja
+  - start-or-modify-browser-runtime
+  - kill-or-modify-existing-process
+  - mutate-reverse-lab
+  - mutate-lease-assignment-quarantine-or-runtime-json
+  - mutate-pingbo-bet365-agos-or-other-project
+  - access-account-or-live-origin
+  - add-public-tool-protocol-error-code-or-config-format

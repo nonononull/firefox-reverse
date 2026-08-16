@@ -1,0 +1,53 @@
+schema_version: agos.runtime-workflow.v1
+task_id: "issue-4-env-close-exit-confirmation"
+project_root: "D:\\Android_source\\firefox-reverse-worktrees\\issue-4-env-close-exit-confirmation"
+task_authority_kind: project-local
+task_authority_status: ready
+task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
+task_authority_source_sha256: "sha256:aa1166f2b671385c8f8bc89d309dc86c743aef3faf4e9d428108bc75fbf322de"
+task_authority_bootstrap_paths: "docs/plans/sessions/issue-4-env-close-exit-confirmation.md,docs/plans/sessions/issue-4-env-close-exit-confirmation.owner-scope.yml"
+scope_hash: "sha256:f093f588a5dc02df6a2f018fee265690f0891549ab13a4a18bf896cb4dc19b53"
+owner_scope_ref: "docs/plans/sessions/issue-4-env-close-exit-confirmation.owner-scope.yml"
+owner_scope_hash: "sha256:f093f588a5dc02df6a2f018fee265690f0891549ab13a4a18bf896cb4dc19b53"
+execution_profile: project-native-v1
+session_plan_ref: "docs/plans/sessions/issue-4-env-close-exit-confirmation.md"
+approved_decision_ref: "session-plan:issue-4-env-close-exit-confirmation#decision"
+selected_business_path: "github-issue-pr-merge"
+snapshot_ref: "git:a10256f6e639add6057807d11015db3887d04dff"
+task_scope_boundary: project-local-owner-scope
+task_current_state: delivery-ready-pending-squash-merge
+mutation_admission_status: project-local-owner-scope-required
+workflow_lookup_mode: dynamic-generated
+dynamic_workflow_gap_summary: "本地 vault 无 Firefox-Reverse env_close 专用 workflow card；复用项目 TDD、完整轻量门禁与 exact-head 审查合同。"
+execution_nodes:
+  - id: deterministic-red
+    command_ref: "node additions/browser/components/agent-sidebar/dev/selftest-environment.mjs"
+    expected_result: "旧 close 控制流因未确认退出却返回成功而稳定失败"
+  - id: minimal-fix
+    command_ref: "仅修改 owner scope 内两份同步后端"
+    expected_result: "只有明确 dead 才清理所有权并发布 stopped/pid-null"
+  - id: focused-green
+    command_ref: "node additions/browser/components/agent-sidebar/dev/selftest-environment.mjs"
+    expected_result: "关闭失败负例与正常退出正例全部通过"
+  - id: complete-light-gate
+    command_ref: "build.md#完整轻量门禁"
+    expected_result: "bundle、13 项自测、branding、audit、mirror 与 diff check 通过"
+  - id: exact-head-review
+    command_ref: "build.md#独立审查"
+    expected_result: "固定模型 reviewer 对最后一次 mutation 返回零 finding"
+stop_gates:
+  - branch-head-tree-remote-or-issue-drift
+  - owner-scope-or-governance-snapshot-drift
+  - red-does-not-fail-for-false-stopped-control-flow
+  - any-source-or-test-path-outside-owner-scope
+  - any-public-tool-protocol-error-code-config-or-state-expansion
+  - any-real-firefox-reverse-lab-lease-assignment-quarantine-or-runtime-mutation
+  - complete-gate-failure-without-root-cause
+  - fixed-model-provider-unavailable-before-required-independent-review
+  - commit-push-pr-or-merge-without-explicit-owner-authorization
+execution_evidence:
+  test: "git:3f8e2eb PID_PRIORITY, ACTIVE_WITHOUT_PID and LATE_DRAIN_FENCE mutations RED; focused EnvironmentBackend selftest GREEN"
+  build: "git:3f8e2eb07a385ed132a5722a1395036ce59040a7 bundle 210.1kb and 13/13 selftest files passed"
+  review: "git:9398c9238395c4e1d9fbb3cb389ef58d39a24cdc APPROVE P0=0 P1=0 P2=0 focused PASS; final doc-only exact-head relock is an external delivery gate"
+  verification: "branding 22; official-registry high audit passed with one existing moderate; lockfile unchanged; mirror/diff/clean passed"
+  closeout: "https://github.com/nonononull/firefox-reverse/pull/5 draft; pending doc-only exact-head relock and squash merge"
