@@ -1,5 +1,14 @@
 # 排错记录
 
+## 2026-08-17：Windows env_close 在温和 taskkill 失败后未升级强制关闭
+
+- 现场：`origin/main=cb23809f3c5b97f6dcb91f401ab149d3f2b109a3`。Windows `_terminatePid()` 调用 `/T` 返回非零后只复查一次 PID；PID 仍为 `alive` 时直接返回失败，已有 `/T /F` 分支不可达。Attempt 7b 的同类现场为 exit `128` 且完整进程树仍存活。
+- RED：只修改 `selftest-environment.mjs` 后运行 focused，0.7 秒内稳定得到 `actual={ok:false,forced:false}`、`expected={ok:true,forced:true}`；失败消息精确命中 `Windows graceful failure with a live PID must escalate to force and confirm death`。两份生产模块此时 blob 仍为 `2d4dc51a4a67b64884a8637ec2abdfd6f626509a`。
+- 修复：仅在 Windows 上把 graceful false 后的状态分成 `dead` 成功、`unknown` 失败、`alive` 进入既有 force 分支；force 命令返回 false 时立即失败，返回 true 后仍须在原 20 次窗口内确认 PID 为 dead。非 Windows 不新增强制升级，`close()`、超时、PID 探测、命令构造、公共协议和终态格式均未修改。
+- GREEN：环境 focused 自测通过，两份 `EnvironmentBackend` 镜像一致，`git diff --check` 通过。参数矩阵覆盖 graceful 后 dead/unknown/alive、force false、force 后 alive/unknown、非 Windows no-force，并精确断言 `/T` 与 `/T /F` 参数。
+- 当前边界：唯一一次完整轻量门禁、官方 audit、fresh exact-head 独立审查和 GitHub 交付尚未执行，不得提前宣称完成。Firefox 源码批次未启动或终止任何真实进程，也未修改 Reverse Lab runtime、lease、assignment 或 quarantine。
+- 治理纠错：AGOS default-entry ReportOnly 在 project-local task authority `READY` 后因本仓无中央 issue-state-v1 注册返回 legacy intake `BLOCKED`；失败已保留。GitHub Issue #8、project-local owner scope 和当前主线程授权继续作为正式执行 authority，未把中央缺口伪报为通过。
+
 ## 2026-08-16：多窗口会话在组合工具与异步链中丢失工作目录/页面上下文
 
 - 现场：`origin/main=20a942590ad833116042c28c09723d18b10020a2`。窗口 A 捕获自己的目录和 chrome 窗口后，窗口 B 改写共享 fallback；A 恢复时，发送前 notes、`find_param_entry`、scripts 内部链会读取 B，JSVMP 自动镜像则因未声明 `ctx` 静默返回 `null`。显式未绑定的 A 会话还会借用 B 的工作目录。

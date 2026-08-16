@@ -385,9 +385,12 @@ try {
 
   const allocated = await windowsBackend._allocatePort(await windowsBackend._loadEnv(winB.id));
   assert.equal(allocated, 2831);
+  assert.equal(await windowsBackend._killPid(6000, { force: false }), true);
+  assert.deepEqual(commandCalls.at(-1).arguments, ["/PID", "6000", "/T"]);
   assert.equal(await windowsBackend._killPid(6000, { force: true }), true);
   assert.ok(commandSearches.includes("taskkill.exe"));
   assert.equal(commandCalls.at(-1).command, "C:\\Windows\\System32\\taskkill.exe");
+  assert.deepEqual(commandCalls.at(-1).arguments, ["/PID", "6000", "/T", "/F"]);
 
   const closeBackend = new EnvironmentBackend({ root: path.join(root, "close-confirmation") });
   const setRunningRuntime = async (environment, pid) => {
@@ -497,24 +500,123 @@ try {
   assert.equal(closeBackend._procOutputTails.has(confirmedCloseEnv.id), false);
 
   const terminateBackend = new EnvironmentBackend({ root: path.join(root, "terminate-confirmation") });
-  let terminateState = "dead";
-  let terminateKillCalls = 0;
-  terminateBackend._pidState = async pid => {
-    assert.equal(pid, 6500);
-    return terminateState;
+  const runTerminateScenario = async ({
+    name,
+    osName = "WINNT",
+    states = [],
+    killResults = [],
+    expected,
+    expectedCalls = [],
+    remainingStates = [],
+  }) => {
+    const stateQueue = [...states];
+    const killQueue = [...killResults];
+    const calls = [];
+    terminateBackend._pidState = async pid => {
+      assert.equal(pid, 6500);
+      assert.ok(stateQueue.length > 0, `${name}: unexpected PID probe`);
+      return stateQueue.shift();
+    };
+    terminateBackend._killPid = async (pid, { force = false } = {}) => {
+      assert.equal(pid, 6500);
+      assert.ok(killQueue.length > 0, `${name}: unexpected kill call`);
+      calls.push({ pid, force });
+      return killQueue.shift();
+    };
+    const previousOS = Services.appinfo.OS;
+    Services.appinfo.OS = osName;
+    try {
+      assert.deepEqual(await terminateBackend._terminatePid(states.length ? 6500 : null), expected, name);
+    } finally {
+      Services.appinfo.OS = previousOS;
+    }
+    assert.deepEqual(calls, expectedCalls, `${name}: kill call sequence`);
+    assert.deepEqual(stateQueue, remainingStates, `${name}: PID probe sequence`);
+    assert.equal(killQueue.length, 0, `${name}: all configured kill results used`);
   };
-  terminateBackend._killPid = async pid => {
-    assert.equal(pid, 6500);
-    terminateKillCalls += 1;
-    return false;
+
+  await runTerminateScenario({
+    name: "missing PID fails without signalling",
+    expected: { ok: false, forced: false },
+  });
+  await runTerminateScenario({
+    name: "already dead PID succeeds without signalling",
+    states: ["dead"],
+    expected: { ok: true, forced: false },
+  });
+  await runTerminateScenario({
+    name: "graceful failure followed by dead succeeds without force",
+    states: ["alive", "dead"],
+    killResults: [false],
+    expected: { ok: true, forced: false },
+    expectedCalls: [{ pid: 6500, force: false }],
+  });
+  await runTerminateScenario({
+    name: "graceful failure followed by unknown fails without force",
+    states: ["alive", "unknown"],
+    killResults: [false],
+    expected: { ok: false, forced: false },
+    expectedCalls: [{ pid: 6500, force: false }],
+  });
+  await runTerminateScenario({
+    name: "Windows graceful failure with a live PID escalates and confirms death",
+    states: ["alive", "alive", "dead"],
+    killResults: [false, true],
+    expected: { ok: true, forced: true },
+    expectedCalls: [
+      { pid: 6500, force: false },
+      { pid: 6500, force: true },
+    ],
+  });
+  await runTerminateScenario({
+    name: "force command failure remains failed without a later PID probe",
+    states: ["alive", "alive", "dead"],
+    killResults: [false, false],
+    expected: { ok: false, forced: false },
+    expectedCalls: [
+      { pid: 6500, force: false },
+      { pid: 6500, force: true },
+    ],
+    remainingStates: ["dead"],
+  });
+  await runTerminateScenario({
+    name: "non-Windows graceful failure stays non-forcing",
+    osName: "Darwin",
+    states: ["alive", "alive"],
+    killResults: [false],
+    expected: { ok: false, forced: false },
+    expectedCalls: [{ pid: 6500, force: false }],
+  });
+
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = callback => {
+    callback();
+    return 0;
   };
-  assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: true, forced: false });
-  assert.equal(terminateKillCalls, 0);
-  terminateState = "alive";
-  assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: false, forced: false });
-  terminateState = "unknown";
-  assert.deepEqual(await terminateBackend._terminatePid(6500), { ok: false, forced: false });
-  assert.equal(terminateKillCalls, 2);
+  try {
+    await runTerminateScenario({
+      name: "force success without confirmed death remains failed",
+      states: Array(22).fill("alive"),
+      killResults: [false, true],
+      expected: { ok: false, forced: true },
+      expectedCalls: [
+        { pid: 6500, force: false },
+        { pid: 6500, force: true },
+      ],
+    });
+    await runTerminateScenario({
+      name: "unknown after force success remains failed",
+      states: ["alive", "alive", ...Array(20).fill("unknown")],
+      killResults: [false, true],
+      expected: { ok: false, forced: true },
+      expectedCalls: [
+        { pid: 6500, force: false },
+        { pid: 6500, force: true },
+      ],
+    });
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
 
   let releaseStartingCall;
   let markStartingCallEntered;
