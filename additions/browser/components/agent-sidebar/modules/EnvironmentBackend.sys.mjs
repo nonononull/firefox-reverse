@@ -3143,16 +3143,13 @@ export class EnvironmentBackend {
       }
     }
     const forced = await this._killPid(pid, { force: true });
-    if (!forced) {
-      return { ok: false, forced: false };
-    }
     for (let i = 0; i < 20; i++) {
       if ((await this._pidState(pid)) === PROCESS_DEAD) {
-        return { ok: true, forced: true };
+        return { ok: true, forced };
       }
       await delay(250);
     }
-    return { ok: false, forced: true };
+    return { ok: false, forced };
   }
 
   async _killPid(pid, { force = false } = {}) {

@@ -15,7 +15,7 @@ approved_decision_ref: "session-plan:issue-10-force-failure-pid-confirmation#dec
 selected_business_path: "github-issue-pr-merge"
 snapshot_ref: "git:8d6d5e298a126ec3a65e1aa0e30c2597a031b3c9"
 task_scope_boundary: project-local-owner-scope
-task_current_state: deterministic-red-confirmed-pending-minimal-fix
+task_current_state: focused-green-pending-complete-light-gate
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 GBrain 无 force command false 后延迟 PID death 专用 workflow；复用项目 EnvironmentBackend TDD、完整轻量门禁和 exact-head 审查合同。"
@@ -71,7 +71,7 @@ model_drift_guards:
   - reasoning-max
   - model-downgrade-forbidden
 execution_evidence:
-  test: "deterministic RED confirmed: force false followed by dead returned ok=false instead of ok=true; focused GREEN pending"
+  test: "deterministic RED confirmed; focused EnvironmentBackend selftest and exact mirror comparison GREEN"
   build: "pending final-tree complete light gate"
   review: "pending fresh exact-head independent review"
   verification: "pending official audit, mirror, diff and scope gates"
