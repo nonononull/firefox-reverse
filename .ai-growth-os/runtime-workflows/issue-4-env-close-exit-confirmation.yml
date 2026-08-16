@@ -6,16 +6,16 @@ task_authority_status: ready
 task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
 task_authority_source_sha256: "sha256:aa1166f2b671385c8f8bc89d309dc86c743aef3faf4e9d428108bc75fbf322de"
 task_authority_bootstrap_paths: "docs/plans/sessions/issue-4-env-close-exit-confirmation.md,docs/plans/sessions/issue-4-env-close-exit-confirmation.owner-scope.yml"
-scope_hash: "sha256:2f043db88ceeb8938c0e6637e4990d01935c984a15bd68f9d775873674e59d80"
+scope_hash: "sha256:f093f588a5dc02df6a2f018fee265690f0891549ab13a4a18bf896cb4dc19b53"
 owner_scope_ref: "docs/plans/sessions/issue-4-env-close-exit-confirmation.owner-scope.yml"
-owner_scope_hash: "sha256:2f043db88ceeb8938c0e6637e4990d01935c984a15bd68f9d775873674e59d80"
+owner_scope_hash: "sha256:f093f588a5dc02df6a2f018fee265690f0891549ab13a4a18bf896cb4dc19b53"
 execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-4-env-close-exit-confirmation.md"
 approved_decision_ref: "session-plan:issue-4-env-close-exit-confirmation#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:96ad3526cc201f49512661fa83e4df8ca54d3793"
+snapshot_ref: "git:ea5e2ad0aaf6635728fc531759a5b572aa581c70"
 task_scope_boundary: project-local-owner-scope
-task_current_state: local-verification-passed-review-pending
+task_current_state: local-verification-passed-final-review-pending
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 vault 无 Firefox-Reverse env_close 专用 workflow card；复用项目 TDD、完整轻量门禁与 exact-head 审查合同。"
@@ -46,8 +46,8 @@ stop_gates:
   - fixed-model-provider-unavailable-before-required-independent-review
   - commit-push-pr-or-merge-without-explicit-owner-authorization
 execution_evidence:
-  test: "baseline mutation RED confirmed; focused EnvironmentBackend selftest GREEN"
-  build: "git:3e759165f215ed233a1ae6556e61b916e675b56f bundle 210.1kb and 13/13 selftest files passed"
-  review: blocked-fixed-model-provider-503
+  test: "git:3f8e2eb PID_PRIORITY, ACTIVE_WITHOUT_PID and LATE_DRAIN_FENCE mutations RED; focused EnvironmentBackend selftest GREEN"
+  build: "git:3f8e2eb07a385ed132a5722a1395036ce59040a7 bundle 210.1kb and 13/13 selftest files passed"
+  review: "git:ebfa1717 request-changes P1=2 P2=1 corrected; final exact-head review pending"
   verification: "branding 22; official-registry high audit passed with one existing moderate; lockfile unchanged; mirror/diff/clean passed"
-  closeout: pending-exact-head-review-and-delivery-authorization
+  closeout: owner-authorized-delivery-pending-final-exact-head-review
