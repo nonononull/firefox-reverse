@@ -268,7 +268,7 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#Issue-10-focused-gate
-    result_ref: pending-deterministic-red-and-focused-green
+    result_ref: deterministic-red actual-ok-false-forced-false expected-ok-true-forced-false; focused-green-pending
   build:
     command_ref: build.md#完整轻量门禁
     result_ref: pending-final-tree

@@ -7,6 +7,7 @@
 - 修复合同：force 命令 true/false 都进入同一个既有有界 PID 观察窗口；明确 dead 才成功。force false 后 delayed dead 返回 `{ ok:true, forced:false }`；持续 alive 或 unknown 仍返回失败，`close()` 保留 `closing`，不新增配置、超时、状态、错误码或公共 API。
 - 运行态边界：本 Firefox 源码批次禁止启动或终止真实 Firefox，禁止修改 Reverse Lab runtime JSON、assignment、lease 或 quarantine；Attempt 9 仍是失败验收，不能由后续补偿升级为 PASS。
 - 当前门禁：GitHub Issue #10 与独立 worktree 已建立，两个只读 reviewer 均认可三文件最小修复和 mutation-killing 矩阵；确定性 RED、生产修复、focused/full 门禁、exact-head 审查与 PR/merge 尚待执行。
+- RED：只修改 `selftest-environment.mjs` 后运行环境 focused，自测在 0.6 秒内稳定失败：`force command failure followed by confirmed death succeeds` 得到 `actual={ok:false,forced:false}`、`expected={ok:true,forced:false}`。两份生产模块 blob 仍均为 `9a0ebbf039242ebfdb33c8707c73f3630ef18de0`，失败精确证明 force false 后没有消费下一次 dead 探测。
 - 治理纠错：session plan 首次校验因遗漏顶层 `verification_commands` 被拒绝，补齐后 `SESSION_PLAN_VERIFY_OK`；control-doc boundary 为 ready。AGOS default-entry ReportOnly 确认 project-local task authority 为 ready，但本仓没有中央 issue-state-v1 注册，legacy route 仍返回 blocked；保留该失败，不把它伪报为通过。GitHub Issue #10、project-local owner scope 与牢大直接授权继续作为正式执行 authority。
 - 治理快照：bootstrap 提交前 runtime verifier 按预期拒绝基线 `c0008f98`，精确指出新 session plan 尚未进入 `snapshot_ref`；先提交五份控制文档，再以纯治理提交绑定该 commit，不能跳过或伪造 runtime READY。
 
