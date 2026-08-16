@@ -271,7 +271,10 @@ export const agentSession = {
         running,
       };
     }
-    const ctx = { workspaceRoot: (opts && opts.workspaceRoot) || null, win: null, signal: null };
+    const ctx = { win: null, signal: null };
+    if (opts && Object.prototype.hasOwnProperty.call(opts, "workspaceRoot")) {
+      ctx.workspaceRoot = opts.workspaceRoot;
+    }
     return await router().dispatch(name, args || {}, ctx);
   },
   /** 多窗口隔离：从候选线程里认领一条**没被别的活窗口占用**的，原子预留(记 owner+心跳)并返回其 id；

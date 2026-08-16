@@ -1,5 +1,20 @@
 # 排错记录
 
+## 2026-08-16：多窗口会话在组合工具与异步链中丢失工作目录/页面上下文
+
+- 现场：`origin/main=20a942590ad833116042c28c09723d18b10020a2`。窗口 A 捕获自己的目录和 chrome 窗口后，窗口 B 改写共享 fallback；A 恢复时，发送前 notes、`find_param_entry`、scripts 内部链会读取 B，JSVMP 自动镜像则因未声明 `ctx` 静默返回 `null`。显式未绑定的 A 会话还会借用 B 的工作目录。
+- RED：新增 `selftest-workspace-isolation.mjs`，首跑得到 `7 passed, 18 failed`。对照组的显式 A 路径、`run_node cwd=A`、省略 ctx 的旧兼容 fallback、显式 notes-A 均通过；18 个失败精确命中 Panel ctx、显式 null、find async/ctx、scripts 页面来源和 JSVMP relay/status。
+- 修复：`AgentPanel` 在第一个异步边界前冻结 `runCtx`，notes 与 `session.run` 复用；Workspace/Code 区分显式 null 与省略 ctx；find 正确 await 并透传 ctx；Scripts 和 JSVMP 的内部调用全链透传 ctx。Reviewer 扩展后，`AgentSession.callTool()` 仅在调用者 own `workspaceRoot` 时向 ctx 添加该字段，省略字段保持旧 fallback、显式 null 继续失败关闭。未修改公共工具合同、语料库设计、ConversationStore 或 reservation。
+- GREEN：最终隔离自测得到 `28 passed, 0 failed`。随后 focused 组的 workspace `25/25`、toolrouter `37/37`、multi-window routing 与 thread reservation 均通过。
+- 治理纠错：`verify-session-plan.ps1` 首次指出缺少 `protected_feature_replay`，补齐后通过。最终 session plan 与 control-doc boundary 均通过；`verify-runtime-workflow.ps1` 仍精确报告 `project-local snapshot is missing governance path: docs/plans/sessions/issue-6-window-workspace-isolation.md`，因为 session plan/owner scope 尚未进入 `snapshot_ref` 指向的提交。当前没有 commit/push 授权，因此治理 snapshot 和最终 runtime 校验保留在交付 owner gate，不伪造通过。Git checkpoint 同时明确输出 `GIT_SOURCE_EDIT_ADMISSION_STATUS=ready`。
+- 网络纠错：首次 `git ls-remote` 在 GitHub 443 连接超时；保留失败后用 GitHub API 复核相同 `main` SHA 成功，没有重置测试预算或改 Git 配置。
+- 门禁接线纠错：第一次完整门禁后审计发现 Windows 固定列表已运行新隔离自测，但 Unix/release 聚合脚本仍只有旧 13 项。将 `selftest-workspace-isolation.mjs` 加入 `scripts/selftest-agent-tools.sh` 并纳入 owner scope；首次全绿证据保留，最终树按 owner 要求从 fresh `npm ci` 重新执行完整门禁。
+- 独立审查阻断与纠正：reviewer 返回 `REQUEST_CHANGES (P1=1, P2=1)`。牢大批准扩展 owner scope 后，真实执行生产 `AgentSession.callTool()` 的新反例在旧实现得到 `27 passed, 1 failed`，唯一失败是省略 `workspaceRoot` 被压成 own null；同一测试还会杀死把 `runCtx` 移到首个 `await ensureThread()` 后的内存 mutation。三行生产修复后同一矩阵 `28/28`。
+- 最终完整门禁：源码/测试冻结后，Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始仅执行一次；安装 7 个包、bundle `210.1kb`、固定 14/14 Node 自测文件与 branding 22 全部通过。官方 high/critical audit 通过并仅剩既有 esbuild moderate，lockfile SHA-256 保持 `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`，`git diff --check` 通过；完整门禁前后九个生产/测试/聚合路径哈希逐项一致。
+- fresh 独立审查：exact-working-tree reviewer 复锁 15 个 changed paths 与 owner scope，返回 `APPROVE (P0=0, P1=0, P2=0)`；独立 focused 的隔离 `28/28`、workspace `25/25`、toolrouter `37/37`、routing、reservation 与 `git diff --check` 全部通过。该结论不冒充尚未提交的 exact-head review。
+- Git 快照：实现与任务控制面提交为 `5972f0df56663cb5a5d8deed39627425d7106b7b`，tree `b935f81cc181a6b641d8ac08b302bc8c6fa4ec07`；后续仅以证据提交把 runtime `snapshot_ref` 绑定该提交，session plan 与 owner-scope 不再变化。
+- 边界：未启动 Firefox，未访问账号/live，未触碰旧 Issue #1 脏工作树、已关闭 PR #2、Reverse Lab 或其它项目。生产/测试不再修改；Git checkpoint 的源码写入许可为 ready，牢大已授权用实现快照解除治理 snapshot 阻断，并继续 exact-head、push、PR 与 squash merge；分支不删除。
+
 ## 2026-08-14：多窗口修复被外围并发审查带偏
 
 - 取证时间：`2026-08-14 18:29:10 +08:00`。

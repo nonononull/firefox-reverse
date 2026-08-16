@@ -729,6 +729,11 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       setError("该任务正在原窗口运行，请点击提示条新建对话。");
       return;
     }
+    // 本回合的目录和窗口在第一个异步边界前冻结，后续 notes 与工具执行必须复用同一份上下文。
+    const runCtx = Object.freeze({
+      workspaceRoot: workspaceDir || null,
+      win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
+    });
     setError(null);
     const userMsg = { role: "user", content: text };
     setMessages([...messages, userMsg]); // 乐观显示；发给模型的权威历史下面从持久化 store 读
@@ -773,7 +778,7 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
       }
       sys += effMode === "assist" ? ASSIST_BLOCK : AUTO_BLOCK;
       try {
-        const dg = notes && notes.digest ? await notes.digest({}) : "";
+        const dg = notes && notes.digest ? await notes.digest({}, runCtx) : "";
         if (dg) {
           sys += `\n\n${dg}`;
         }
@@ -787,13 +792,8 @@ export default function AgentPanel({ buildClient, conversations, store, router, 
         // done/error 由引擎自己落盘，故这里**不 await、不 finalize**。
         // assist=AI辅助逐阶段：引擎不跨回合自动续（每个 turn 结束交回用户等其选方向）。
         session.run(tid, { systemPrompt: sys, convo, confirmMode, assist: effMode === "assist", maxRounds: 80, maxPerTool: 40,
-          // 工作目录随会话注入到每条工具调用的 ctx，WorkspaceBackend 优先使用 ctx.workspaceRoot，
-          // 实现多窗口/多会话并发时各自操作各自的目录、互不干扰。
-          workspaceRoot: workspaceDir || null,
-          // 把**本侧栏所在的 chrome 窗口**注入 ctx.win——所有定位标签页的工具(page_eval/导航/点击/
-          // webapi/jsvmp trace/signer_trace/whitebox)优先打**本窗口**的当前 tab，而非"全局聚焦窗口"，
-          // 两个浏览器窗口并发跑各自的 Agent 时互不打错 tab。topChromeWindow 不随焦点变。
-          win: (typeof window !== "undefined" && window.browsingContext && window.browsingContext.topChromeWindow) || null,
+          // 工作目录与 chrome 窗口沿用 notes 已使用的冻结上下文，不能在异步间隙重新读取共享 fallback。
+          ...runCtx,
         });
       } else {
         // 无 session 兜底（不跨重载）：直接 chat。

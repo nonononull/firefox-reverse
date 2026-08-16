@@ -31,6 +31,7 @@ SELFTESTS=(
   selftest-thread-reservation.mjs
   selftest-multi-window-routing.mjs
   selftest-workspace.mjs
+  selftest-workspace-isolation.mjs
   selftest-environment.mjs
   selftest-e2e.mjs
 )
