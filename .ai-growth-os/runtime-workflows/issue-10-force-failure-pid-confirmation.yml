@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-10-force-failure-pid-confirmation.md"
 approved_decision_ref: "session-plan:issue-10-force-failure-pid-confirmation#decision"
 selected_business_path: "github-issue-pr-merge"
-snapshot_ref: "git:8d6d5e298a126ec3a65e1aa0e30c2597a031b3c9"
+snapshot_ref: "git:2a644f584df70fb91534e3f039e8ef73f579e99d"
 task_scope_boundary: project-local-owner-scope
-task_current_state: focused-green-pending-complete-light-gate
+task_current_state: evidence-committed-pending-exact-head-review
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: dynamic-generated
 dynamic_workflow_gap_summary: "本地 GBrain 无 force command false 后延迟 PID death 专用 workflow；复用项目 EnvironmentBackend TDD、完整轻量门禁和 exact-head 审查合同。"
@@ -71,8 +71,8 @@ model_drift_guards:
   - reasoning-max
   - model-downgrade-forbidden
 execution_evidence:
-  test: "deterministic RED confirmed; focused EnvironmentBackend selftest and exact mirror comparison GREEN"
-  build: "pending final-tree complete light gate"
+  test: "git:48b973de238cc8852ab6c12c54237bcc95368d4a deterministic RED confirmed; focused EnvironmentBackend selftest and exact mirror comparison GREEN"
+  build: "git:48b973de238cc8852ab6c12c54237bcc95368d4a bundle 210.1kb and fixed 14/14 selftest files passed"
   review: "pending fresh exact-head independent review"
-  verification: "pending official audit, mirror, diff and scope gates"
+  verification: "branding 22; official-registry high audit passed with one existing moderate; production/test/lockfile hashes unchanged; mirror and diff check passed"
   closeout: "pending PR, squash merge, Issue close and downstream exact side-load"
