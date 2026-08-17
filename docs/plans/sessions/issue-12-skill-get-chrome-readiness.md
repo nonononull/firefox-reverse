@@ -57,6 +57,10 @@ pr_branch: codex/issue-12-skill-get-chrome-readiness
 review_strategy: main-thread-exact-head-diff-audit
 ci_expectation: no-pull-request-ci; use one fresh local complete lightweight gate
 merge_policy: owner-authorized-squash-after-zero-finding-audit
+review_ref: pending-main-thread-exact-head-review
+pr_ref: pending
+ci_ref: no-pull-request-ci
+merge_ref: pending-owner-authorized-squash
 
 ## Approved Decision
 
@@ -147,19 +151,20 @@ change_contract:
       command_or_evidence_ref: Firefox-only exact side-load semantic verification
       expected_result: skill_get、受管 page_info、页面四字段、公开 stop 与 inactive 通过
   sibling_regression_guard:
-    status: pending
+    status: passed
     closeout_rule: passed-or-blocked-before-done
   protected_feature_replay:
-    status: planned
+    status: passed
     known_good_features:
       - feature: Agent 工具目录、工具路由、工作区隔离与环境生命周期
         owner: agent-sidebar-complete-lightweight-suite
         baseline_evidence_ref: git:fe7a39f6 and existing fourteen selftests
         post_change_replay_plan_ref: build.md#完整轻量门禁
-        post_change_replay_ref: pending-single-complete-gate
+        post_change_replay_ref: git:815eaf389c6164ea5e9928e8b4ae48080c719dfa
         expected_result: 既有 14 项加新增 skill backend 自测全部通过
-        owner_visible_status: pending
-        regression_status: pending
+        actual_result: bundle 210.1kb、固定 15/15 自测、branding 22、官方 high audit、保护模块与 scope 全部通过
+        owner_visible_status: passed
+        regression_status: passed
     forbidden_ops_until_replay:
       - claim-done
       - push
@@ -192,16 +197,16 @@ independent_verification_policy:
 execution_evidence:
   test:
     command_ref: build.md#Issue-12-skill_get-chrome-资源聚焦门禁
-    result_ref: pending-deterministic-red-and-focused-green
+    result_ref: deterministic-red-old-flow-timeout-and-focused-green
   build:
     command_ref: build.md#完整轻量门禁
-    result_ref: pending-single-complete-gate
+    result_ref: git:815eaf389c6164ea5e9928e8b4ae48080c719dfa; fixed-15-selftests-and-branding22-passed
   review:
     command_ref: build.md#Issue-12-exact-head-review
     result_ref: pending
   verification:
     command_ref: build.md#Issue-12-交付边界
-    result_ref: pending
+    result_ref: official-high-audit-scope-protected-modules-diff-clean-passed; production-test-script-lockfile-hashes-unchanged
   closeout:
     command_ref: build.md#Issue-12-Firefox-only-exact-side-load
     result_ref: pending

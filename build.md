@@ -212,6 +212,16 @@ git status --short
 
 Issue #10 只允许 owner scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档变化。不新增超时配置，不启动 Firefox，不处置真实 PID，不修改 Reverse Lab runtime、lease、assignment 或 quarantine。仓库没有 pull-request CI；production/test hash 在唯一一次完整门禁前后必须一致。
 
+## Issue #12 当前验证快照
+
+- 旧流 RED：只新增自测、生产仍为基线时，约 200ms 后稳定得到 `SKILL_BACKEND_OLD_FLOW_TIMEOUT netUtilCalls=1 fetchCalls=0`；精确命中 `NetUtil.asyncFetch()` 回调不抵达且新 `fetch` 路径未执行。
+- focused GREEN：`selftest-skill-backend.mjs` 通过正文、缓存、六模板首次释放、已存在模板跳过和 404 错误信封；生产仅把 `_readChrome()` 替换为 `fetch -> response.ok -> response.text()`。
+- 实现提交：`815eaf389c6164ea5e9928e8b4ae48080c719dfa`，tree `74c9b8c7dc0da836dd417cad0c4691aac97af216`。
+- 唯一一次完整轻量门禁：Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始，安装 7 个包、bundle `210.1kb`、固定 15/15 Node 自测与 branding 22 全部通过。
+- 官方 registry high audit 通过，仅剩既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #12。
+- 门禁前后 SHA-256 一致：`SkillBackend.sys.mjs=da02a44b30b1774b29fda440b0a6fc59139f5fcdaa223af007d51528b9c29c04`、`selftest-skill-backend.mjs=5e4a36d3012e9fd3d57b9a7883a09a9f1d3807dd58808d255e58ecb252a7bb45`、Unix 聚合入口 `9a966cbce9953e60613bbb9b84f0e73cecf740e90ca02c813cb23cb30434064e`、lockfile `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- 保护模块 `AgentSession.sys.mjs`、`Tools.sys.mjs`、`JsvmpBackend.sys.mjs` 对基线无差异；八路径 scope、`git diff --check` 与 clean 均通过。以上是本地证据，不是 hosted CI；治理写回不重复完整产品门禁。
+
 ## Issue #8 当前验证快照
 
 - 首个 RED：冻结旧生产 blob `2d4dc51a4a67b64884a8637ec2abdfd6f626509a` 返回 `actual={ok:false,forced:false}`、`expected={ok:true,forced:true}`，精确命中 Windows graceful false + alive 未升级 force。
