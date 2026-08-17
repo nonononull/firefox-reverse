@@ -1,0 +1,46 @@
+schema_version: agos.owner-scope.v1
+trusted_issuer: owner
+owner_exception_ref: owner-direct:2026-08-18-firefox-reverse-issue-12-skill-get-chrome-readiness
+delivery_authorization_ref: owner-direct:2026-08-18-run-without-stepwise-approval
+allowed_repositories:
+  - project
+allowed_paths:
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\additions\browser\components\agent-sidebar\modules\SkillBackend.sys.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\additions\browser\components\agent-sidebar\dev\selftest-skill-backend.mjs
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\scripts\selftest-agent-tools.sh
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\build.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\err.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\docs\plans\sessions\issue-12-skill-get-chrome-readiness.md
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\docs\plans\sessions\issue-12-skill-get-chrome-readiness.owner-scope.yml
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\.ai-growth-os\runtime-workflows\issue-12-skill-get-chrome-readiness.yml
+allowed_ops:
+  - source-edit
+  - write-code
+  - write-test
+  - project-doc-write
+  - build
+  - verification
+  - git-add
+  - git-commit
+  - git-push
+  - create-pr
+  - squash-merge
+  - generate-exact-sideload
+  - firefox-only-runtime-verification
+allowed_path_ops:
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\additions\browser\components\agent-sidebar\modules\SkillBackend.sys.mjs::source-edit,write-code,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\additions\browser\components\agent-sidebar\dev\selftest-skill-backend.mjs::source-edit,write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\scripts\selftest-agent-tools.sh::source-edit,write-test,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\build.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\err.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\docs\plans\sessions\issue-12-skill-get-chrome-readiness.md::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\docs\plans\sessions\issue-12-skill-get-chrome-readiness.owner-scope.yml::project-doc-write,git-add,commit
+  - D:\Android_source\firefox-reverse-worktrees\issue-12-skill-get-chrome-readiness\.ai-growth-os\runtime-workflows\issue-12-skill-get-chrome-readiness.yml::project-doc-write,git-add,commit
+forbidden_ops:
+  - mutate-paseo-reverse-lab-source-or-config
+  - mutate-camoufox-source-config-runtime-or-failed-state
+  - replace-existing-sideload
+  - kill-or-modify-existing-process
+  - mutate-lease-assignment-quarantine-or-runtime-json
+  - access-account-or-live-origin
+  - add-public-tool-protocol-error-code-config-format-timeout-or-lifecycle-state
