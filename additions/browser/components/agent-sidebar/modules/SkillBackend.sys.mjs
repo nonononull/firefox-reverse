@@ -2,7 +2,7 @@
  *
  * 方法论正文随浏览器打进 omni：content/skill-reverse.md（jar.mn 注册）。
  * 系统提示只留短核心；Agent 开工逆向前调 skill_get 把全文拉进上下文（按需、不常驻）。
- * 读法沿用 JsvmpBackend 的 chrome:// 提取：NetUtil.asyncFetch + loadUsingSystemPrincipal。
+ * chrome:// 静态资源通过系统模块可用的 fetch 读取。
  */
 const SKILL_URL = "chrome://browser/content/agent-sidebar/skill-reverse.md";
 // 内置脚手架：skill_get 时释放到 <工作目录>/.agent-tools/templates/，AI 一句 fs_copy 拿现成改。
@@ -16,24 +16,11 @@ export class SkillBackend {
 
   /** 读 chrome:// 内置文本资源（skill 正文 / 模板共用）。 */
   async _readChrome(url) {
-    const { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
-    return new Promise((resolve, reject) => {
-      try {
-        NetUtil.asyncFetch({ uri: url, loadUsingSystemPrincipal: true }, (inputStream, status) => {
-          if (!Components.isSuccessCode(status)) {
-            reject(new Error("读资源失败 status=" + status + " " + url));
-            return;
-          }
-          try {
-            resolve(NetUtil.readInputStreamToString(inputStream, inputStream.available(), { charset: "UTF-8" }));
-          } catch (e) {
-            reject(e);
-          }
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("读资源失败 status=" + response.status + " " + url);
+    }
+    return response.text();
   }
 
   /** 把内置脚手架释放到 <工作目录>/.agent-tools/templates/（已存在则跳过）。返回相对路径列表。 */

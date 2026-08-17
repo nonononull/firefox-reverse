@@ -28,6 +28,7 @@ SELFTESTS=(
   selftest-retry.mjs
   selftest-anthropic.mjs
   selftest-toolrouter.mjs
+  selftest-skill-backend.mjs
   selftest-thread-reservation.mjs
   selftest-multi-window-routing.mjs
   selftest-workspace.mjs
