@@ -13,9 +13,9 @@ execution_profile: project-native-v1
 session_plan_ref: "docs/plans/sessions/issue-12-skill-get-chrome-readiness.md"
 approved_decision_ref: "session-plan:issue-12-skill-get-chrome-readiness#decision"
 selected_business_path: "github-issue-pr-merge-then-exact-sideload"
-snapshot_ref: "git:4da43ce48ee7da20ccda5c392817a4c7eb13b14a"
+snapshot_ref: "git:f10d1286d1a79a6541244f91633cfd7add566ce1"
 task_scope_boundary: project-local-owner-scope
-task_current_state: ready-for-deterministic-red
+task_current_state: evidence-committed-pending-exact-head-review
 mutation_admission_status: project-local-owner-scope-required
 workflow_lookup_mode: project-native
 execution_nodes:
@@ -44,8 +44,8 @@ stop_gates:
   - any requirement to overwrite an existing side-load or touch Camoufox state
   - any requirement to kill a process or hand-edit runtime, lease, assignment or quarantine state
 execution_evidence:
-  test: pending
-  build: pending
+  test: deterministic-red-old-flow-timeout-and-focused-green
+  build: git:815eaf389c6164ea5e9928e8b4ae48080c719dfa; fixed-15-selftests-and-branding22-passed
   review: pending
-  verification: pending
-  closeout: pending
+  verification: official-high-audit-scope-protected-modules-diff-clean-passed
+  closeout: pending-pr-merge-and-firefox-only-exact-sideload
