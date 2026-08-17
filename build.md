@@ -111,6 +111,15 @@ if ($LASTEXITCODE -ne 0) { throw 'environment backend mirrors differ' }
 
 冻结旧流 `c0008f98dfd3a4a9d57c29e156c89e90c7734504` 的 RED 必须精确命中“force 命令返回 false 后没有执行下一次 PID 探测”，不能以语法、mock 或环境失败冒充。focused GREEN 后冻结三份生产/测试字节，再从 fresh `npm ci` 开始只运行一次完整轻量门禁；若三份路径随后变化，完整证据失效。
 
+## Issue #12 skill_get chrome 资源聚焦门禁
+
+```powershell
+node .\additions\browser\components\agent-sidebar\dev\selftest-skill-backend.mjs
+if ($LASTEXITCODE -ne 0) { throw 'skill backend selftest failed' }
+```
+
+该纯 Node 自测不启动 Firefox。它用永不回调的 fake `NetUtil.asyncFetch()` 确认旧 `_readChrome()` 在 200ms 有界窗口内 RED，并验证修复后的正文读取、正文缓存、六模板首次释放、已释放模板不覆写及非成功响应的既有 `ok:false/error` 信封。旧流 RED 必须包含 `SKILL_BACKEND_OLD_FLOW_TIMEOUT netUtilCalls=1 fetchCalls=0`，不能用网络、语法或真实 Firefox 失败冒充。
+
 ## 完整轻量门禁
 
 ```powershell
@@ -118,7 +127,7 @@ npm --prefix .\additions\browser\components\agent-sidebar run build
 $tests = @(
   'selftest-config.mjs', 'selftest-mozbuild.mjs', 'selftest-providers.mjs',
   'selftest-conversations.mjs', 'selftest-stream.mjs', 'selftest-retry.mjs',
-  'selftest-anthropic.mjs', 'selftest-toolrouter.mjs',
+  'selftest-anthropic.mjs', 'selftest-toolrouter.mjs', 'selftest-skill-backend.mjs',
   'selftest-thread-reservation.mjs', 'selftest-multi-window-routing.mjs',
   'selftest-workspace.mjs', 'selftest-workspace-isolation.mjs',
   'selftest-environment.mjs', 'selftest-e2e.mjs'
@@ -132,6 +141,32 @@ if ($LASTEXITCODE -ne 0) { throw 'branding check failed' }
 ```
 
 Windows 不使用 Bash 聚合入口，避免 CRLF、NVM4W shim 和 WSL 平台依赖干扰。
+
+## Issue #12 交付边界
+
+```powershell
+npm ci --prefix .\additions\browser\components\agent-sidebar
+npm --prefix .\additions\browser\components\agent-sidebar run build
+# 随后执行“完整轻量门禁”的固定 15 项自测与 branding 检查
+npm audit --prefix .\additions\browser\components\agent-sidebar --audit-level=high --registry=https://registry.npmjs.org
+git diff --check
+git diff --name-only fe7a39f6a3ec9abe6943b77f261254ea30711233...HEAD
+git diff --exit-code fe7a39f6a3ec9abe6943b77f261254ea30711233...HEAD -- `
+  .\additions\browser\components\agent-sidebar\modules\AgentSession.sys.mjs `
+  .\additions\browser\components\agent-sidebar\modules\Tools.sys.mjs `
+  .\additions\browser\components\agent-sidebar\modules\JsvmpBackend.sys.mjs
+git status --short
+```
+
+Issue #12 只允许 owner scope 的八个路径变化。生产代码仅限 `SkillBackend.sys.mjs`，不修改公共工具合同、工具数量、Paseo Reverse Lab、Camoufox 或现有运行态。生产、测试与聚合接线冻结后，从 fresh `npm ci` 开始只运行一次完整轻量门禁；其后这些字节若变化，完整证据失效。仓库没有 pull-request CI，不得把本地结果表述为 hosted CI。
+
+## Issue #12 exact-head review
+
+主线程在最后一次治理写回后复锁 branch、base、HEAD、tree、remote、Issue/PR 状态、clean 与八路径 owner scope，逐行审计 `fe7a39f6...HEAD`。任何超范围路径、生产/测试哈希漂移、未解释失败或非零 P0/P1/P2 都阻断 push/merge；历史 review 不得替代当前 exact-head 审计。
+
+## Issue #12 Firefox-only exact side-load
+
+仅在 squash merge 后，从合并提交创建新的唯一 source/archive/candidate 根；不得覆盖 `firefox-reverse-fe7a39f6-sideload`。私有 receipt 必须绑定 merge commit/tree、source archive、`browser/omni.ja`、Firefox executable、`SkillBackend.sys.mjs` archive entry 和全部意外差异检查。随后只允许通过 Paseo Reverse Lab 公开生命周期与初始化时已发布的 Firefox 工具完成：`skill_get`、受管 `agent_call_tool(page_info)`、Example Domain 的 title/URL/H1/link、公开 stop 及最终 inactive。任一阶段失败时保持证据与状态，不 kill、不手改 runtime、lease、assignment 或 quarantine，也不进入 Camoufox。
 
 ## Issue #6 交付边界
 
@@ -176,6 +211,16 @@ git status --short
 ```
 
 Issue #10 只允许 owner scope 中的两份环境后端、一个环境自测、`build.md`、`err.md` 与三份任务控制文档变化。不新增超时配置，不启动 Firefox，不处置真实 PID，不修改 Reverse Lab runtime、lease、assignment 或 quarantine。仓库没有 pull-request CI；production/test hash 在唯一一次完整门禁前后必须一致。
+
+## Issue #12 当前验证快照
+
+- 旧流 RED：只新增自测、生产仍为基线时，约 200ms 后稳定得到 `SKILL_BACKEND_OLD_FLOW_TIMEOUT netUtilCalls=1 fetchCalls=0`；精确命中 `NetUtil.asyncFetch()` 回调不抵达且新 `fetch` 路径未执行。
+- focused GREEN：`selftest-skill-backend.mjs` 通过正文、缓存、六模板首次释放、已存在模板跳过和 404 错误信封；生产仅把 `_readChrome()` 替换为 `fetch -> response.ok -> response.text()`。
+- 实现提交：`815eaf389c6164ea5e9928e8b4ae48080c719dfa`，tree `74c9b8c7dc0da836dd417cad0c4691aac97af216`。
+- 唯一一次完整轻量门禁：Windows / Node `v22.23.1` / npm `10.9.8` 从 fresh `npm ci` 开始，安装 7 个包、bundle `210.1kb`、固定 15/15 Node 自测与 branding 22 全部通过。
+- 官方 registry high audit 通过，仅剩既有 esbuild 开发依赖 1 个 moderate；建议修复会升级到 breaking `esbuild@0.28.2`，不属于 Issue #12。
+- 门禁前后 SHA-256 一致：`SkillBackend.sys.mjs=da02a44b30b1774b29fda440b0a6fc59139f5fcdaa223af007d51528b9c29c04`、`selftest-skill-backend.mjs=5e4a36d3012e9fd3d57b9a7883a09a9f1d3807dd58808d255e58ecb252a7bb45`、Unix 聚合入口 `9a966cbce9953e60613bbb9b84f0e73cecf740e90ca02c813cb23cb30434064e`、lockfile `86c6d7fa2c8a627cae50e417dd4e255390f5669e6c5c1a78bba65f92327300d7`。
+- 保护模块 `AgentSession.sys.mjs`、`Tools.sys.mjs`、`JsvmpBackend.sys.mjs` 对基线无差异；八路径 scope、`git diff --check` 与 clean 均通过。以上是本地证据，不是 hosted CI；治理写回不重复完整产品门禁。
 
 ## Issue #8 当前验证快照
 

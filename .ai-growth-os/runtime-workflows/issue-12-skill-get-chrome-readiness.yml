@@ -1,0 +1,51 @@
+schema_version: agos.runtime-workflow.v1
+task_id: "issue-12-skill-get-chrome-readiness"
+project_root: "D:\\Android_source\\firefox-reverse-worktrees\\issue-12-skill-get-chrome-readiness"
+task_authority_kind: project-local
+task_authority_status: ready
+task_authority_source_ref: "git-root-set:sha256:de6aabe145a1885f8d8edb87c83ff2b02b3a7dfadaf1efb03da92c0ebad1b726"
+task_authority_source_sha256: "sha256:289ac63d1c9dab0c00594867871488ceeb3198bdec63bdc0e72d9fe48b87ce5e"
+task_authority_bootstrap_paths: "docs/plans/sessions/issue-12-skill-get-chrome-readiness.md,docs/plans/sessions/issue-12-skill-get-chrome-readiness.owner-scope.yml"
+scope_hash: "sha256:01f6e6c0e66ada17b146e129794ce207e8beb0876fdfbabdd102a984322027f5"
+owner_scope_ref: "docs/plans/sessions/issue-12-skill-get-chrome-readiness.owner-scope.yml"
+owner_scope_hash: "sha256:01f6e6c0e66ada17b146e129794ce207e8beb0876fdfbabdd102a984322027f5"
+execution_profile: project-native-v1
+session_plan_ref: "docs/plans/sessions/issue-12-skill-get-chrome-readiness.md"
+approved_decision_ref: "session-plan:issue-12-skill-get-chrome-readiness#decision"
+selected_business_path: "github-issue-pr-merge-then-exact-sideload"
+snapshot_ref: "git:f10d1286d1a79a6541244f91633cfd7add566ce1"
+task_scope_boundary: project-local-owner-scope
+task_current_state: evidence-committed-pending-exact-head-review
+mutation_admission_status: project-local-owner-scope-required
+workflow_lookup_mode: project-native
+execution_nodes:
+  - id: deterministic-red
+    command_ref: "node additions/browser/components/agent-sidebar/dev/selftest-skill-backend.mjs"
+    expected: "old NetUtil asyncFetch path times out inside bounded mutation check"
+  - id: minimal-fix
+    command_ref: "apply_patch SkillBackend._readChrome only"
+    expected: "fetch response ok/text path; no public contract change"
+  - id: focused-green
+    command_ref: "build.md#Issue-12-skill_get-chrome-资源聚焦门禁"
+    expected: "body, cache, six templates and failure envelope pass"
+  - id: complete-gate
+    command_ref: "build.md#完整轻量门禁"
+    expected: "fresh npm ci, build, fixed 15 selftests, branding and official audit pass once"
+  - id: delivery
+    command_ref: "build.md#Issue-12-交付边界"
+    expected: "exact-head clean scope audit, push, PR and squash merge"
+  - id: firefox-runtime
+    command_ref: "new exact side-load plus Firefox-only managed semantic verification"
+    expected: "skill_get, managed page_info, page fields, public stop and inactive pass"
+stop_gates:
+  - any branch, base, HEAD, tree, issue or changed-path drift
+  - deterministic RED does not fail for the old asyncFetch non-termination
+  - source or test changes after the single complete gate
+  - any requirement to overwrite an existing side-load or touch Camoufox state
+  - any requirement to kill a process or hand-edit runtime, lease, assignment or quarantine state
+execution_evidence:
+  test: deterministic-red-old-flow-timeout-and-focused-green
+  build: git:815eaf389c6164ea5e9928e8b4ae48080c719dfa; fixed-15-selftests-and-branding22-passed
+  review: pending
+  verification: official-high-audit-scope-protected-modules-diff-clean-passed
+  closeout: pending-pr-merge-and-firefox-only-exact-sideload

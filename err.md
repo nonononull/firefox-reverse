@@ -1,5 +1,18 @@
 # 排错记录
 
+## 2026-08-18：skill_get 首次读取内置 chrome 资源时超时
+
+- 现场：Paseo Reverse Lab 的 Firefox-only 验收中，`frx__agent_tools({})` 成功返回 64 项目录；首次 `frx__skill_get({})` 在 `123446ms` 后返回 `BACKEND_TIMEOUT`。FRX worker 随外层超时关闭，Firefox runtime 最终为 `stopped/pid=null`，调用 artifact 未生成 `.agent-tools/templates`。
+- 排除漂移：源码与 exact side-load `fe7a39f6` 的 `SkillBackend.sys.mjs`、`AgentSession.sys.mjs`、`Tools.sys.mjs` 和 `skill-reverse.md` 已逐字节一致；资源确实存在于 `browser/omni.ja`。故障边界收敛在 `SkillBackend._readChrome()`。
+- 根因：旧实现使用 `NetUtil.asyncFetch()` 读取 `chrome://` 静态资源；现场回调没有抵达，Promise 永不终结，最终只能由 Reverse Lab 外层超时收口。
+- RED：新增纯 Node `selftest-skill-backend.mjs`，fake `NetUtil.asyncFetch()` 永不回调且 `fetch` 可成功返回；旧生产在 200ms 内稳定失败为 `SKILL_BACKEND_OLD_FLOW_TIMEOUT netUtilCalls=1 fetchCalls=0`。这证明失败来自旧回调流不终结，而非网络、语法、mock 或 Firefox 启动失败。
+- 修复：仅把 `_readChrome()` 改为系统模块可用的 `fetch(url)`，非成功响应抛出含 status 与 URL 的既有错误，成功时返回 `response.text()`；未修改 `get()`、缓存、六模板、工具协议、`AgentSession`、`Tools` 或 JSVMP。
+- focused GREEN：同一自测通过正文、缓存、六模板释放、已存在模板跳过和 404 错误信封。
+- 完整门禁：实现提交 `815eaf389c6164ea5e9928e8b4ae48080c719dfa` 上从 fresh `npm ci` 开始只执行一次；bundle `210.1kb`、固定 15/15 Node 自测、branding 22、官方 registry high audit、保护模块与八路径 scope、`git diff --check`、clean 全部通过。audit 仅剩既有 esbuild moderate。
+- 字节冻结：门禁前后 `SkillBackend`、新增自测、Unix 聚合入口与 lockfile SHA-256 分别保持 `da02a44...29c04`、`5e4a36d...7bb45`、`9a966cbc...064e`、`86c6d7f...300d7`；后续治理写回不重复产品全链。exact-head 交付与新 side-load Firefox-only 真实验收仍待执行。
+- 治理纠错：AGOS default-entry ReportOnly 确认 project-local task authority 为 ready，但因外部仓任务未进入中央 backlog，legacy route 返回 blocked；保留该失败并继续使用 GitHub Issue #12、已验证 session plan、owner scope 与牢大直接授权。首个 Git checkpoint 对未跟踪控制文档失败关闭，形成两个纯治理提交后 clean checkpoint 为 ready。
+- 边界：未触碰原 `D:\Android_source\firefox-reverse` 脏 worktree、Paseo Reverse Lab 源码/配置、现有 side-load、真实 PID、lease、assignment、quarantine 或 Camoufox 失败现场。
+
 ## 2026-08-17：强制停止命令失败后漏掉迟到的 PID 死亡确认
 
 - 现场：Paseo Reverse Lab Attempt 9 已消除三 Gateway 并发 stop 冲突，三 Lane、独立 profile/artifact/PID/port 与第四容量门均通过；但三个首次 `frx_env_close` 都在约 3.2 秒返回 `Firefox process <pid> did not stop; environment remains closing`。精确 PID 随后自行退出，lane-1 再次 close 在 283ms 内成功。失败 receipt SHA-256 为 `c2769c0f757022ff94cd2ea8daa43b7023804a515aec43e6adfab6b34655bae8`；a9 assignment 与 lease 正确保留 quarantined，未手工修改或删除。
